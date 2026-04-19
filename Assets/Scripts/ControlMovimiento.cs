@@ -6,9 +6,9 @@ public class ControlMovimiento : MonoBehaviour
     private Vector2 direction = Vector2.down;
     public float speed = 5f;
 
-    public KeyCode inputUp    = KeyCode.W;
-    public KeyCode inputDown  = KeyCode.S;
-    public KeyCode inputLeft  = KeyCode.A;
+    public KeyCode inputUp = KeyCode.W;
+    public KeyCode inputDown = KeyCode.S;
+    public KeyCode inputLeft = KeyCode.A;
     public KeyCode inputRight = KeyCode.D;
 
     public SpritesAnimadosRender spriteRendererUp;
@@ -26,7 +26,7 @@ public class ControlMovimiento : MonoBehaviour
 
     public void Awake()
     {
-        rigidbody            = GetComponent<Rigidbody2D>();
+        rigidbody = GetComponent<Rigidbody2D>();
         activeSpriteRenderer = spriteRendererDown;
     }
 
@@ -46,7 +46,7 @@ public class ControlMovimiento : MonoBehaviour
 
     private void FixedUpdate()
     {
-        Vector2 position    = rigidbody.position;
+        Vector2 position = rigidbody.position;
         Vector2 translation = direction * speed * Time.fixedDeltaTime;
         rigidbody.MovePosition(position + translation);
     }
@@ -55,12 +55,12 @@ public class ControlMovimiento : MonoBehaviour
     {
         direction = newDirection;
 
-        spriteRendererUp.enabled    = spriteRenderer == spriteRendererUp;
-        spriteRendererDown.enabled  = spriteRenderer == spriteRendererDown;
-        spriteRendererLeft.enabled  = spriteRenderer == spriteRendererLeft;
+        spriteRendererUp.enabled = spriteRenderer == spriteRendererUp;
+        spriteRendererDown.enabled = spriteRenderer == spriteRendererDown;
+        spriteRendererLeft.enabled = spriteRenderer == spriteRendererLeft;
         spriteRendererRight.enabled = spriteRenderer == spriteRendererRight;
 
-        activeSpriteRenderer      = spriteRenderer;
+        activeSpriteRenderer = spriteRenderer;
         activeSpriteRenderer.idle = direction == Vector2.zero;
     }
 
@@ -81,12 +81,13 @@ public class ControlMovimiento : MonoBehaviour
     private void DamageSequence()
     {
         isInvincible = true;
-        enabled      = false;
+        enabled = false;
+        speed = 5f;
         GetComponent<ControlBomba>().enabled = false;
 
-        spriteRendererUp.enabled    = false;
-        spriteRendererDown.enabled  = false;
-        spriteRendererLeft.enabled  = false;
+        spriteRendererUp.enabled = false;
+        spriteRendererDown.enabled = false;
+        spriteRendererLeft.enabled = false;
         spriteRendererRight.enabled = false;
 
         // Reinicia animación antes de mostrarla para que siempre empiece en frame 0
@@ -99,27 +100,29 @@ public class ControlMovimiento : MonoBehaviour
     private void OnDamageSequenceEnded()
     {
         isInvincible = false;
-        enabled      = true;
-        GetComponent<ControlBomba>().enabled = true;
+        enabled = true;
+        ControlBomba cb = GetComponent<ControlBomba>();
+        cb.enabled = true;
+        cb.ResetPowerUps(); // Después de OnEnable(), forzamos los valores correctos
 
         // Reinicia antes de ocultar para que el próximo daño empiece limpio
         spriteRenderDamage.ResetAnimation();
         spriteRenderDamage.enabled = false;
 
         spriteRendererDown.enabled = true;
-        activeSpriteRenderer       = spriteRendererDown;
-        activeSpriteRenderer.idle  = true;
+        activeSpriteRenderer = spriteRendererDown;
+        activeSpriteRenderer.idle = true;
     }
 
     private void DeathSequence()
     {
         isInvincible = true;
-        enabled      = false;
+        enabled = false;
         GetComponent<ControlBomba>().enabled = false;
 
-        spriteRendererUp.enabled    = false;
-        spriteRendererDown.enabled  = false;
-        spriteRendererLeft.enabled  = false;
+        spriteRendererUp.enabled = false;
+        spriteRendererDown.enabled = false;
+        spriteRendererLeft.enabled = false;
         spriteRendererRight.enabled = false;
 
         spriteRenderDeath.ResetAnimation();

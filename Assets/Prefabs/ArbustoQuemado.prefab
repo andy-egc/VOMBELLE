@@ -130,8 +130,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ArbustoQuemado
   destructionTime: 1
-  powerUpProbabilidad: 0.2
-  spawnablePowerUps:
-  - {fileID: 5423924950531313313, guid: 321db763bbdc40343b9b6a9f14c430f4, type: 3}
-  - {fileID: 2235363904532653681, guid: fa785ac80b0289849b3f50dd75ea5f1d, type: 3}
-  - {fileID: 777361426569698200, guid: b8284d19c5a9f0748bfc81d81d7bcdc7, type: 3}
+  probabilidadGeneral: 0.11
+  powerUps:
+  - powerUp: {fileID: 5423924950531313313, guid: 321db763bbdc40343b9b6a9f14c430f4, type: 3}
+    probabilidad: 0.4
+  - powerUp: {fileID: 2235363904532653681, guid: fa785ac80b0289849b3f50dd75ea5f1d, type: 3}
+    probabilidad: 0.4
+  - powerUp: {fileID: 777361426569698200, guid: b8284d19c5a9f0748bfc81d81d7bcdc7, type: 3}
+    probabilidad: 0.2

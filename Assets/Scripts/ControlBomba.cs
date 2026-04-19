@@ -114,6 +114,13 @@ public class ControlBomba : MonoBehaviour
         bombsRemaining++;
     }
 
+    public void ResetPowerUps()
+    {
+        bombAmount = 2;
+        explosionRadius = 1;
+        bombsRemaining = 2;
+    }
+
     private void OnTriggerExit2D(Collider2D other)
     {
         if (other.gameObject.layer == LayerMask.NameToLayer("Bomb"))
