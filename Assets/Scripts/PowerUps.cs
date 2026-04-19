@@ -10,6 +10,12 @@ public class PowerUps : MonoBehaviour
     }
 
     public PowerUpType type;
+    public float rotacionVelocidad = 90f;
+
+    private void Update()
+    {
+        transform.Rotate(0f, 0f, rotacionVelocidad * Time.deltaTime);
+    }
 
     private void OnItemPickup(GameObject player)
     {
@@ -25,10 +31,10 @@ public class PowerUps : MonoBehaviour
 
             case PowerUpType.Velocidad:
                 ControlMovimiento movAurora = player.GetComponent<ControlMovimiento>();
-                if (movAurora != null) movAurora.speed++;
+                if (movAurora != null && movAurora.speed < 8f) movAurora.speed++;
 
                 ControlMovimientoLysara movLysara = player.GetComponent<ControlMovimientoLysara>();
-                if (movLysara != null) movLysara.speed++;
+                if (movLysara != null && movLysara.speed < 8f) movLysara.speed++;
                 break;
         }
 
