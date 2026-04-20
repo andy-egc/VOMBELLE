@@ -90,7 +90,6 @@ public class ControlMovimiento : MonoBehaviour
         spriteRendererLeft.enabled = false;
         spriteRendererRight.enabled = false;
 
-        // Reinicia animación antes de mostrarla para que siempre empiece en frame 0
         spriteRenderDamage.ResetAnimation();
         spriteRenderDamage.enabled = true;
 
@@ -103,9 +102,8 @@ public class ControlMovimiento : MonoBehaviour
         enabled = true;
         ControlBomba cb = GetComponent<ControlBomba>();
         cb.enabled = true;
-        cb.ResetPowerUps(); // Después de OnEnable(), forzamos los valores correctos
+        //(cb.ResetPowerUps(); // Vuelve a los valores originales
 
-        // Reinicia antes de ocultar para que el próximo daño empiece limpio
         spriteRenderDamage.ResetAnimation();
         spriteRenderDamage.enabled = false;
 

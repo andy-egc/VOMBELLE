@@ -5,12 +5,29 @@ using System.Collections;
 
 public class HUDManager : MonoBehaviour
 {
-    [Header("Panel Victoria")]
+    [Header("Panel de resultado")]
     public GameObject panelVictoria;
-    public Image imagenPanel;
-    public TextMeshProUGUI txtNombre;
-    public TextMeshProUGUI txtGano;
+    public GameObject panelDerrota;
+    public GameObject panelEmpate;
     public float tiempoFade = 1.5f;
+
+    [Header("Componentes Panel Victoria")]
+    public Image imagenPanelVictoria;
+    public TextMeshProUGUI txtVictoria;
+    public TextMeshProUGUI txtNombreV;
+
+    [Header("Componentes Panel Derrota")]
+    public Image imagenPanelDerrota;
+    public TextMeshProUGUI txtDerrota;
+    public TextMeshProUGUI txtNombreD;
+
+    [Header("Componentes Panel Empate")]
+    public TextMeshProUGUI txtEmpate;
+
+    [Header("Audio")]
+    public AudioSource audioCamera;
+    public AudioSource audioPanelVictoria;
+    public AudioSource audioPanelDerrota;
 
     [Header("Referencias Personajes")]
     public ControlMovimiento aurora;
@@ -30,7 +47,13 @@ public class HUDManager : MonoBehaviour
     public TextMeshProUGUI txtRangoExplosionLysara;
     public TextMeshProUGUI txtVelocidadLysara;
 
+    private enum Resultado { Victoria, Derrota, Empate }
     private bool juegoTerminado = false;
+
+    private void Start()
+    {
+        FindObjectOfType<Temporizador>().onTiempoAgotado += VerificarGanadorPorTiempo;
+    }
 
     private void Update()
     {
@@ -46,66 +69,95 @@ public class HUDManager : MonoBehaviour
         txtRangoExplosionLysara.text = "x" + bombaLysara.explosionRadius;
         txtVelocidadLysara.text = "x" + lysara.speed;
 
-        if (aurora.Vidas <= 0)
+        // Aurora muere → Lysara gana (victoria de Lysara = derrota de Aurora)
+        if (aurora.Vidas <= 0 && !juegoTerminado)
         {
-            FindObjectOfType<Temporizador>().DetenerTemporizador();
-            juegoTerminado = true;
-            txtNombre.text = "Lysara";
-            Invoke(nameof(MostrarPanel), 3.5f);
+            TerminarJuego(Resultado.Derrota, 3.5f);
         }
-        else if (lysara.Vidas <= 0)
+        // Lysara muere → Aurora gana
+        else if (lysara.Vidas <= 0 && !juegoTerminado)
         {
-            FindObjectOfType<Temporizador>().DetenerTemporizador();
-            juegoTerminado = true;
-            txtNombre.text = "Aurora";
-            Invoke(nameof(MostrarPanel), 3.5f);
+            TerminarJuego(Resultado.Victoria, 3.5f);
         }
-    }
-    private void Start()
-    {
-        FindObjectOfType<Temporizador>().onTiempoAgotado += VerificarGanadorPorTiempo;
     }
 
     private void VerificarGanadorPorTiempo()
     {
         if (juegoTerminado) return;
 
-        juegoTerminado = true;
-
         if (aurora.Vidas > lysara.Vidas)
-        {
-            txtNombre.text = "Aurora";
-            txtGano.text="GANA";
-            Invoke(nameof(MostrarPanel), 0f);
-        }
+            TerminarJuego(Resultado.Victoria, 0f);
         else if (lysara.Vidas > aurora.Vidas)
-        {
-            txtNombre.text = "Lysara";
-            txtGano.text="GANA";
-            Invoke(nameof(MostrarPanel), 0f);
-        }
+            TerminarJuego(Resultado.Derrota, 0f);
         else
+            TerminarJuego(Resultado.Empate, 0f);
+    }
+
+    private void TerminarJuego(Resultado resultado, float delay)
+    {
+        juegoTerminado = true;
+        FindObjectOfType<Temporizador>().DetenerTemporizador();
+        StartCoroutine(MostrarPanelConDelay(resultado, delay));
+    }
+
+    private IEnumerator MostrarPanelConDelay(Resultado resultado, float delay)
+{
+    if (delay > 0f) yield return new WaitForSeconds(delay);
+
+    GameObject panel;
+    Image imagen = null;
+    TextMeshProUGUI txtResultado = null, txtNombre = null;
+
+    AudioSource audioPanel;
+    if (resultado == Resultado.Victoria)
+        audioPanel = audioPanelVictoria;
+    else if (resultado == Resultado.Derrota)
+        audioPanel = audioPanelDerrota;
+    else
+        audioPanel = null; // Empate: la música de la cámara sigue sonando
+
+    switch (resultado)
+    {
+        case Resultado.Victoria:
+            panel        = panelVictoria;
+            imagen       = imagenPanelVictoria;
+            txtResultado = txtVictoria;
+            txtNombre    = txtNombreV;
+            break;
+        case Resultado.Derrota:
+            panel        = panelDerrota;
+            imagen       = imagenPanelDerrota;
+            txtResultado = txtDerrota;
+            txtNombre    = txtNombreD;
+            break;
+        default: // Empate
+            panel        = panelEmpate;
+            txtResultado = txtEmpate;
+            break;
+    }
+
+    // Solo pausar cámara y reproducir panel si NO es empate
+    if (audioPanel != null)
+    {
+        if (audioCamera != null) audioCamera.Pause();
+        audioPanel.Play();
+    }
+
+    panel.SetActive(true);
+    yield return StartCoroutine(FadeIn(imagen, txtResultado, txtNombre));
+}
+
+    private IEnumerator FadeIn(Image imagen, TextMeshProUGUI txtResultado, TextMeshProUGUI txtNombre)
+    {
+        if (imagen != null)
         {
-            txtNombre.text = "¡EMPATE!";
-            txtGano.text="";
-            Invoke(nameof(MostrarPanel), 0f);
+            Color colorPanel = imagen.color;
+            colorPanel.a = 0f;
+            imagen.color = colorPanel;
         }
-    }
 
-    private void MostrarPanel()
-    {
-        panelVictoria.SetActive(true);
-        StartCoroutine(FadeIn());
-    }
-
-    private IEnumerator FadeIn()
-    {
-        Color colorPanel = imagenPanel.color;
-        colorPanel.a = 0f;
-        imagenPanel.color = colorPanel;
-
-        txtNombre.alpha = 0f;
-        txtGano.alpha = 0f;
+        if (txtResultado != null) txtResultado.alpha = 0f;
+        if (txtNombre != null) txtNombre.alpha = 0f;
 
         float tiempo = 0f;
         while (tiempo < tiempoFade)
@@ -113,10 +165,15 @@ public class HUDManager : MonoBehaviour
             tiempo += Time.deltaTime;
             float alpha = Mathf.Clamp01(tiempo / tiempoFade);
 
-            colorPanel.a = alpha * 0.6f;
-            imagenPanel.color = colorPanel;
-            txtNombre.alpha = alpha;
-            txtGano.alpha = alpha;
+            if (imagen != null)
+            {
+                Color colorPanel = imagen.color;
+                colorPanel.a = alpha * 0.6f;
+                imagen.color = colorPanel;
+            }
+
+            if (txtResultado != null) txtResultado.alpha = alpha;
+            if (txtNombre != null) txtNombre.alpha = alpha;
 
             yield return null;
         }

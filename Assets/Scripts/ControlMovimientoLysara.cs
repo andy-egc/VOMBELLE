@@ -2,143 +2,204 @@ using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
 
-// ════════════════════════════════════════════════════════════════════════════
-//  LYSARA — IA v3.1 — DEFENSIVA + ESTABLE — Vombelle
+// ═══════════════════════════════════════════════════════════════════════════════
+//  LYSARA — IA v4.0 — AGRESIVA + OPTIMIZADA — Vombelle
+// ═══════════════════════════════════════════════════════════════════════════════
 //
-//  CAMBIOS v3.1:
-//   · ELIMINADA la recursión mutua HuirTactico ↔ SeguirRuta (stack overflow).
-//     Ahora SeguirRuta solo aborta; el BuclePrincipal decide el siguiente paso.
-//   · BFS de escape filtra activamente celdas peligrosas durante la búsqueda.
-//   · Contador de profundidad como red de seguridad.
-//   · Inspector reorganizado: todos los parámetros expuestos, agrupados y
-//     con tooltips explicativos.
+//  ÍNDICE DE SECCIONES (en orden de aparición):
 //
-//  FILOSOFÍA: "Un daño evitado vale más que un golpe arriesgado."
-//   Prioridad 1: SUPERVIVENCIA   Prioridad 2: ATAQUE
-// ════════════════════════════════════════════════════════════════════════════
+//  ┌─[ INSPECTOR ]──────────────────────────────────────────────────────────┐
+//  │ Variables públicas configurables desde Unity, agrupadas por header:    │
+//  │   · REFERENCIAS — el Transform de Aurora.                              │
+//  │   · NIVEL DE INTELIGENCIA — preset (Principiante a Experto).           │
+//  │   · ESTILO DE JUEGO — sliders maestros: agresividad e escape.          │
+//  │   · CAPACIDADES — toggles (puede bombear, predicción, acorralar...).   │
+//  │   · MOVIMIENTO, VIDAS, COMBATE, SUPERVIVENCIA, PERSECUCIÓN,            │
+//  │     ACORRALAMIENTO, BFS, SPRITES, DEBUG.                               │
+//  └────────────────────────────────────────────────────────────────────────┘
+//  ┌─[ ENUMS Y PRESETS ]────────────────────────────────────────────────────┐
+//  │ EstadoIA y NivelInteligencia. AplicarPreset() ajusta todos los         │
+//  │ parámetros según el nivel elegido.                                     │
+//  └────────────────────────────────────────────────────────────────────────┘
+//  ┌─[ PROPIEDADES DERIVADAS ]──────────────────────────────────────────────┐
+//  │ Cálculos efectivos a partir de los sliders maestros:                   │
+//  │   · DistanciaEscapeEfectiva, BombChanceEfectiva, MultiplicadorPresion. │
+//  └────────────────────────────────────────────────────────────────────────┘
+//  ┌─[ CAMPOS PRIVADOS Y CACHE ]────────────────────────────────────────────┐
+//  │ Estado interno: rigidbody, controlBomba, banderas (iaActiva,           │
+//  │ isInvincible...), memoria de calor, rastreo de bombas con timestamps,  │
+//  │ cache por tick de zonas de peligro (evita recalcular).                 │
+//  └────────────────────────────────────────────────────────────────────────┘
+//  ┌─[ INICIO ]─────────────────────────────────────────────────────────────┐
+//  │ Awake/OnValidate/Start/Iniciar — setup, presets, cachés de máscaras.   │
+//  └────────────────────────────────────────────────────────────────────────┘
+//  ┌─[ RASTREO DE BOMBAS Y AURORA ]─────────────────────────────────────────┐
+//  │ Mantiene un diccionario de bombas con cuándo aparecieron,              │
+//  │ velocidad estimada de Aurora y predicción de su posición futura.       │
+//  └────────────────────────────────────────────────────────────────────────┘
+//  ┌─[ BUCLE PRINCIPAL ]────────────────────────────────────────────────────┐
+//  │ Decisión por tick. PRIORIDAD: ataque > huida (excepto fuego activo).   │
+//  │ Orden: anti-atasco → fuego inminente → ATAQUE → powerup → persecución. │
+//  └────────────────────────────────────────────────────────────────────────┘
+//  ┌─[ DECISIÓN DE BOMBA ]──────────────────────────────────────────────────┐
+//  │ EvaluarDecisionBomba() — 7 razones para colocar bomba ordenadas        │
+//  │ por valor estratégico. Acorralamiento si Aurora tiene pocas salidas.   │
+//  └────────────────────────────────────────────────────────────────────────┘
+//  ┌─[ VALIDACIÓN DE ESCAPE ]───────────────────────────────────────────────┐
+//  │ BuscarRutaEscapeValida() — BFS que solo devuelve ruta si garantiza     │
+//  │ celda segura + a tiempo + lejos suficiente. Si no, no se bombea.       │
+//  └────────────────────────────────────────────────────────────────────────┘
+//  ┌─[ DETECCIÓN DE PELIGRO ]───────────────────────────────────────────────┐
+//  │ HayPeligro / PeligroInminente / ExplosionActivaEn — niveles de         │
+//  │ urgencia para decidir cuándo huir y cuándo arriesgarse a atacar.       │
+//  └────────────────────────────────────────────────────────────────────────┘
+//  ┌─[ HUIDA TÁCTICA ]──────────────────────────────────────────────────────┐
+//  │ HuirTactico → SeguirRutaEscape. Sin recursión. Recorta ruta según      │
+//  │ intensidadEscape para no irse al rincón cuando no es necesario.        │
+//  └────────────────────────────────────────────────────────────────────────┘
+//  ┌─[ PERSECUCIÓN ]────────────────────────────────────────────────────────┐
+//  │ ObjetivoPresion — busca celdas con línea de fuego a Aurora pegándose   │
+//  │ o respirando según agresividad. ObjetivoDefensivo — kiting tras daño.  │
+//  └────────────────────────────────────────────────────────────────────────┘
+//  ┌─[ BFS ]────────────────────────────────────────────────────────────────┐
+//  │ RutaBFS (segura) y RutaBFSEscape (permisiva en emergencia). Algoritmo  │
+//  │ de búsqueda en anchura para pathfinding por celdas.                    │
+//  └────────────────────────────────────────────────────────────────────────┘
+//  ┌─[ ACORRALAMIENTO ]─────────────────────────────────────────────────────┐
+//  │ EncontrarBloqueoOptimo — celda desde la que tendría línea a Aurora     │
+//  │ y aún tendría escape disponible.                                       │
+//  └────────────────────────────────────────────────────────────────────────┘
+//  ┌─[ DETECCIÓN DE AURORA ]────────────────────────────────────────────────┐
+//  │ AuroraEnLinea, MuroEntre, DestructibleQueExpondriaAurora,              │
+//  │ DestructibleHaciaAurora — chequeos geométricos sobre el tablero.       │
+//  └────────────────────────────────────────────────────────────────────────┘
+//  ┌─[ ANÁLISIS / POWERUPS / CALOR ]────────────────────────────────────────┐
+//  │ ContarSalidas, PowerupSeguro, RegistrarCalor (memoria de explosiones   │
+//  │ recientes), LimpiarCalor (purga entradas vencidas).                    │
+//  └────────────────────────────────────────────────────────────────────────┘
+//  ┌─[ VARIABILIDAD / DESATASCAR ]──────────────────────────────────────────┐
+//  │ CeldaAlternativa, CeldaLibreConMemoria, Desatascar — para no parecer   │
+//  │ una máquina y para salir de bloqueos físicos.                          │
+//  └────────────────────────────────────────────────────────────────────────┘
+//  ┌─[ MOVIMIENTO ]─────────────────────────────────────────────────────────┐
+//  │ MoverATile — mueve a la celda destino con vigilancia de fuego activo   │
+//  │ durante el desplazamiento (puede abortar a mitad de camino).           │
+//  └────────────────────────────────────────────────────────────────────────┘
+//  ┌─[ SPRITES ]────────────────────────────────────────────────────────────┐
+//  │ SetSprite, OcultarMovimiento, OcultarTodosLosSprites — gestión de las  │
+//  │ animaciones direccionales, daño y muerte sin solapamientos.            │
+//  └────────────────────────────────────────────────────────────────────────┘
+//  ┌─[ DAÑO Y MUERTE ]──────────────────────────────────────────────────────┐
+//  │ ProcesarExplosion, IniciarDano/TerminarDano, IniciarMuerte/FinMuerte.  │
+//  │ Modo defensivo temporal tras recibir daño.                             │
+//  └────────────────────────────────────────────────────────────────────────┘
+//  ┌─[ UTILIDADES ]─────────────────────────────────────────────────────────┐
+//  │ Dirs, EsCaminable, EsIndestructible, EsDestructible, Snap, VI.         │
+//  └────────────────────────────────────────────────────────────────────────┘
+//
+//  OPTIMIZACIONES v4.0:
+//   · Cache por tick de zonas de peligro (1 cálculo, N consultas).
+//   · Reuso de HashSet/Queue para evitar GC.
+//   · ZonaBomba reusa buffer estático.
+//   · Bucles for en vez de foreach en hot paths.
+//   · Salidas tempranas en validaciones.
+//   · Arrays en vez de listas donde el tamaño es fijo.
+//
+//  PRIORIDAD AGRESIVIDAD v4.0:
+//   · El ataque se evalúa ANTES que la huida preventiva.
+//   · Solo el fuego activo o peligro extremo aborta el ataque.
+//   · Si tiene oportunidad clara, ignora amenazas con >1.5s de mecha.
+// ═══════════════════════════════════════════════════════════════════════════════
 
 public class ControlMovimientoLysara : MonoBehaviour
 {
-    // ─────────────────────────────────────────────────────────────────────────
-    // INSPECTOR — CONFIGURACIÓN ACCESIBLE
-    // ─────────────────────────────────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════════════════
+    // [ INSPECTOR ] — Configuración pública desde Unity
+    // ═════════════════════════════════════════════════════════════════════════
 
     [Header("═══ REFERENCIAS ═══")]
     [Tooltip("Transform de la jugadora (Aurora). Arrástralo aquí desde la escena.")]
     public Transform Aurora;
 
     [Header("═══ NIVEL DE INTELIGENCIA ═══")]
-    [Tooltip("Preset general de dificultad. Si aplicarPresetAutomatico = true, ajusta muchos parámetros de golpe. Ponlo en PERSONALIZADO para controlar todo manualmente.")]
+    [Tooltip("Preset general de dificultad. PERSONALIZADO = control manual total.")]
     public NivelInteligencia nivelInteligencia = NivelInteligencia.Normal;
 
-    [Tooltip("Si está marcado, al iniciar se aplican los valores del preset elegido. Desmárcalo si quieres configurar todo a mano.")]
+    [Tooltip("Si está marcado, al iniciar se aplican los valores del preset.")]
     public bool aplicarPresetAutomatico = true;
 
+    [Header("═══ ESTILO DE JUEGO (sliders maestros) ═══")]
+    [Tooltip("Qué tan paranoica es al escapar. 0 = se queda cerca tras bombear (FÁCIL DE ALCANZAR). 1 = huye al rincón más alejado (imposible de cazar pero nunca recibe daño).")]
+    [Range(0f, 1f)]
+    public float intensidadEscape = 0.5f;
+
+    [Tooltip("Qué tan agresiva persigue y bombea. 0 = pasiva. 1 = obsesiva, presiona constantemente.")]
+    [Range(0f, 1f)]
+    public float nivelAgresividad = 0.5f;
+
     [Header("═══ CAPACIDADES (toggles individuales) ═══")]
-    [Tooltip("Si está desactivado, Lysara NO coloca bombas. Úsalo para modo puramente evasivo / tutorial.")]
+    [Tooltip("Si está desactivado, NO coloca bombas (modo evasivo / tutorial).")]
     public bool puedeColocarBombas = true;
 
-    [Tooltip("Si está desactivado, Lysara no anticipa los movimientos de Aurora. La hace menos letal.")]
+    [Tooltip("Si está desactivado, no anticipa los movimientos de Aurora.")]
     public bool usarPrediccionAurora = true;
 
-    [Tooltip("Si está desactivado, Lysara no intentará acorralar a Aurora en pasillos.")]
+    [Tooltip("Si está desactivado, no intenta acorralar a Aurora.")]
     public bool puedeAcorralar = true;
 
-    [Tooltip("Si está desactivado, Lysara no rompe bloques destructibles para abrir camino.")]
+    [Tooltip("Si está desactivado, no rompe bloques destructibles.")]
     public bool puedeRomperBloques = true;
 
-    [Tooltip("Si está desactivado, Lysara ignora los powerups del mapa.")]
+    [Tooltip("Si está desactivado, ignora los powerups del mapa.")]
     public bool recogePowerups = true;
 
-    [Tooltip("Si está desactivado, Lysara reacciona tarde a las bombas (solo huye cuando explotan, no antes). MÁS FÁCIL DE MATAR.")]
+    [Tooltip("Si está desactivado, reacciona tarde a las bombas. MÁS FÁCIL DE MATAR.")]
     public bool huirPreventivamente = true;
 
-    [Tooltip("Probabilidad (0 a 1) de que Lysara cometa un error de cálculo y elija un movimiento subóptimo. Útil para bajar la dificultad sin desactivar capacidades.")]
+    [Tooltip("Probabilidad de cometer un error de cálculo (0 a 0.5).")]
     [Range(0f, 0.5f)]
     public float probabilidadError = 0f;
 
     [Header("═══ MOVIMIENTO ═══")]
-    [Tooltip("Velocidad de movimiento en unidades por segundo.")]
-    [Range(1f, 10f)]
-    public float speed = 5f;
-
-    [Tooltip("Segundos entre decisiones de movimiento. Menor = reacciona más rápido pero consume más CPU.")]
-    [Range(0.08f, 0.4f)]
-    public float timeBetweenMoves = 0.18f;
-
-    [Tooltip("Variación aleatoria (+/- segundos) para que no parezca una máquina perfecta.")]
-    [Range(0f, 0.1f)]
-    public float timingJitter = 0.04f;
-
-    [Tooltip("Segundos de espera antes de que la IA empiece a actuar al arrancar el nivel.")]
-    [Range(0f, 10f)]
-    public float delayInicio = 3f;
+    [Range(1f, 10f)] public float speed = 5f;
+    [Range(0.08f, 0.4f)] public float timeBetweenMoves = 0.18f;
+    [Range(0f, 0.1f)] public float timingJitter = 0.04f;
+    [Range(0f, 10f)] public float delayInicio = 3f;
 
     [Header("═══ VIDAS ═══")]
-    [Tooltip("Número de vidas antes de morir.")]
-    [Range(1, 10)]
-    public int Vidas = 3;
+    [Range(1, 10)] public int Vidas = 3;
 
     [Header("═══ COMBATE ═══")]
-    [Tooltip("Probabilidad de colocar bomba cuando detecta oportunidad (0 = nunca ataca, 1 = siempre ataca).")]
-    [Range(0f, 1f)]
-    public float bombChance = 0.90f;
-
-    [Tooltip("Probabilidad de tomar un camino alternativo al perseguir (le da imprevisibilidad).")]
-    [Range(0f, 0.3f)]
-    public float wanderChance = 0.08f;
+    [Tooltip("Probabilidad base de bombear. Se MULTIPLICA por nivelAgresividad.")]
+    [Range(0f, 1f)] public float bombChance = 0.90f;
+    [Range(0f, 0.3f)] public float wanderChance = 0.08f;
 
     [Header("═══ SUPERVIVENCIA (crítico) ═══")]
-    [Tooltip("Distancia mínima en celdas que debe recorrer al huir de su propia bomba. Mayor = más seguro.")]
-    [Range(1.5f, 5f)]
-    public float distanciaEscapeMinima = 2.5f;
-
-    [Tooltip("Segundos de colchón que debe sobrar tras llegar al escape. Mayor = más seguro.")]
-    [Range(0.2f, 2f)]
-    public float margenSeguridadEscape = 0.6f;
-
-    [Tooltip("Si escapar tarda más de (fuseTime - este valor), NO coloca bomba. Mayor = más prudente.")]
-    [Range(0.3f, 2f)]
-    public float umbralAbortoBomba = 0.8f;
-
-    [Tooltip("Segundos restantes de una bomba para considerarla inminente y huir ya.")]
-    [Range(0.5f, 3f)]
-    public float umbralBombaInminente = 1.5f;
-
-    [Tooltip("Segundos en modo defensivo tras recibir daño (no ataca, mantiene distancia).")]
-    [Range(0f, 10f)]
-    public float modoDefensivoTrasDano = 3f;
+    [Tooltip("Distancia mínima de escape. Se MULTIPLICA por intensidadEscape (0.5x a 1.5x).")]
+    [Range(1.5f, 5f)] public float distanciaEscapeMinima = 2.5f;
+    [Range(0.2f, 2f)] public float margenSeguridadEscape = 0.6f;
+    [Range(0.3f, 2f)] public float umbralAbortoBomba = 0.8f;
+    [Range(0.5f, 3f)] public float umbralBombaInminente = 1.5f;
+    [Range(0f, 10f)] public float modoDefensivoTrasDano = 3f;
 
     [Header("═══ PERSECUCIÓN ═══")]
-    [Tooltip("Cuánto en el futuro predecir la posición de Aurora (segundos).")]
-    [Range(0f, 1f)]
-    public float tiempoPrediccionAurora = 0.3f;
+    [Range(0f, 1f)] public float tiempoPrediccionAurora = 0.3f;
+    [Range(2f, 8f)] public float distanciaDefensiva = 4.5f;
+    [Range(1, 4)] public int minimoSalidasObjetivo = 2;
 
-    [Tooltip("Distancia en celdas a mantener de Aurora cuando está en modo defensivo.")]
-    [Range(2f, 8f)]
-    public float distanciaDefensiva = 4.5f;
+    [Tooltip("Distancia ideal (celdas) a Aurora durante la persecución. Menor = más cerca, más presión. Se recomienda 1-3.")]
+    [Range(1f, 5f)] public float distanciaPersecucionIdeal = 2f;
 
-    [Tooltip("Mínimo de salidas caminables que debe tener una celda objetivo al perseguir.")]
-    [Range(1, 4)]
-    public int minimoSalidasObjetivo = 2;
+    [Tooltip("Si está activado, Lysara persigue a Aurora SIEMPRE que no tenga otra acción prioritaria. Desactívalo solo si quieres que deambule cuando no hay oportunidad clara de ataque.")]
+    public bool perseguirSiempre = true;
 
     [Header("═══ ACORRALAMIENTO ═══")]
-    [Tooltip("Máximo de salidas que puede tener Aurora para que Lysara intente acorralarla.")]
-    [Range(1, 4)]
-    public int maxSalidasAuroraParaAcorralar = 2;
-
-    [Tooltip("Distancia máxima (celdas) a la que intenta acorralar a Aurora.")]
-    [Range(2f, 10f)]
-    public float distanciaMaxAcorralar = 6f;
+    [Range(1, 4)] public int maxSalidasAuroraParaAcorralar = 2;
+    [Range(2f, 12f)] public float distanciaMaxAcorralar = 6f;
 
     [Header("═══ AVANZADO (BFS) ═══")]
-    [Tooltip("Máximo de celdas a explorar en una búsqueda. Mayor = más inteligente pero más lento.")]
-    [Range(100, 800)]
-    public int limiteBFS = 400;
-
-    [Tooltip("Cada cuántos segundos refrescar el cache de bombas en el mapa.")]
-    [Range(0.05f, 0.3f)]
-    public float intervaloRefrescoCache = 0.08f;
+    [Range(100, 800)] public int limiteBFS = 400;
+    [Range(0.05f, 0.3f)] public float intervaloRefrescoCache = 0.08f;
 
     [Header("═══ SPRITES ═══")]
     public SpritesAnimadosRender spriteRendererUp;
@@ -148,147 +209,122 @@ public class ControlMovimientoLysara : MonoBehaviour
     public SpritesAnimadosRender spriteRenderDeath;
     public SpritesAnimadosRender spriteRenderDamage;
 
-    [Header("═══ DEBUG (solo lectura) ═══")]
-    [Tooltip("Estado actual de la IA. Se actualiza en tiempo real.")]
+    [Header("═══ DEBUG ═══")]
     public EstadoIA estado = EstadoIA.Idle;
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // FIN INSPECTOR
-    // ─────────────────────────────────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════════════════
+    // [ ENUMS Y PRESETS ]
+    // ═════════════════════════════════════════════════════════════════════════
 
     public enum EstadoIA { Idle, Perseguir, Acorralar, Huir, Bomba, Powerup, Recuperando, Defensivo }
 
     public enum NivelInteligencia
     {
-        Principiante,   // IA muy lenta, comete errores frecuentes, casi no ataca
-        Facil,          // Reacciona lento, ataca ocasionalmente
-        Normal,         // Balance estándar
-        Dificil,        // Agresiva y rápida
-        Experto,        // Implacable: máxima velocidad, predicción, cero errores
-        Personalizado   // No aplica preset, usa los valores del inspector tal cual
+        Principiante, Facil, Normal, Dificil, Experto, Personalizado
     }
 
-    // Aplica automáticamente los valores del preset sobre los parámetros del inspector.
-    // Se llama en Awake si aplicarPresetAutomatico está activo.
     private void AplicarPreset()
     {
         switch (nivelInteligencia)
         {
             case NivelInteligencia.Principiante:
-                timeBetweenMoves = 0.35f;
-                bombChance = 0.30f;
-                wanderChance = 0.35f;
-                probabilidadError = 0.35f;
-                distanciaEscapeMinima = 2f;
-                margenSeguridadEscape = 0.4f;
-                umbralAbortoBomba = 0.6f;
-                umbralBombaInminente = 1.0f;
-                modoDefensivoTrasDano = 6f;
-                tiempoPrediccionAurora = 0f;
-                distanciaDefensiva = 5.5f;
-                minimoSalidasObjetivo = 1;
-                maxSalidasAuroraParaAcorralar = 1;
-                distanciaMaxAcorralar = 3f;
-                usarPrediccionAurora = false;
-                puedeAcorralar = false;
-                huirPreventivamente = false;
-                puedeRomperBloques = false;
+                intensidadEscape = 0.20f; nivelAgresividad = 0.20f;
+                timeBetweenMoves = 0.32f; bombChance = 0.35f; wanderChance = 0.30f;
+                probabilidadError = 0.35f; distanciaEscapeMinima = 1.5f;
+                margenSeguridadEscape = 0.4f; umbralAbortoBomba = 0.5f;
+                umbralBombaInminente = 0.8f; modoDefensivoTrasDano = 5f;
+                tiempoPrediccionAurora = 0f; distanciaDefensiva = 3f;
+                distanciaPersecucionIdeal = 2f; perseguirSiempre = true;
+                minimoSalidasObjetivo = 1; maxSalidasAuroraParaAcorralar = 1;
+                distanciaMaxAcorralar = 5f;
+                usarPrediccionAurora = false; puedeAcorralar = false;
+                huirPreventivamente = false; puedeRomperBloques = true;
                 break;
 
             case NivelInteligencia.Facil:
-                timeBetweenMoves = 0.26f;
-                bombChance = 0.55f;
-                wanderChance = 0.20f;
-                probabilidadError = 0.18f;
-                distanciaEscapeMinima = 2.2f;
-                margenSeguridadEscape = 0.5f;
-                umbralAbortoBomba = 0.7f;
-                umbralBombaInminente = 1.2f;
-                modoDefensivoTrasDano = 4.5f;
-                tiempoPrediccionAurora = 0.15f;
-                distanciaDefensiva = 5f;
-                minimoSalidasObjetivo = 2;
-                maxSalidasAuroraParaAcorralar = 1;
-                distanciaMaxAcorralar = 4f;
-                usarPrediccionAurora = false;
-                puedeAcorralar = true;
-                huirPreventivamente = true;
-                puedeRomperBloques = true;
+                intensidadEscape = 0.25f; nivelAgresividad = 0.55f;
+                timeBetweenMoves = 0.20f; bombChance = 0.80f; wanderChance = 0.10f;
+                probabilidadError = 0.15f; distanciaEscapeMinima = 1.5f;
+                margenSeguridadEscape = 0.35f; umbralAbortoBomba = 0.4f;
+                umbralBombaInminente = 1.3f; modoDefensivoTrasDano = 2.5f;
+                tiempoPrediccionAurora = 0.2f; distanciaDefensiva = 2f;
+                distanciaPersecucionIdeal = 1.2f; perseguirSiempre = true;
+                minimoSalidasObjetivo = 1; maxSalidasAuroraParaAcorralar = 2;
+                distanciaMaxAcorralar = 8f;
+                usarPrediccionAurora = true; puedeAcorralar = true;
+                huirPreventivamente = true; puedeRomperBloques = true;
                 break;
 
             case NivelInteligencia.Normal:
-                timeBetweenMoves = 0.18f;
-                bombChance = 0.80f;
-                wanderChance = 0.10f;
-                probabilidadError = 0.08f;
-                distanciaEscapeMinima = 2.5f;
-                margenSeguridadEscape = 0.6f;
-                umbralAbortoBomba = 0.8f;
-                umbralBombaInminente = 1.5f;
-                modoDefensivoTrasDano = 3f;
-                tiempoPrediccionAurora = 0.3f;
-                distanciaDefensiva = 4.5f;
-                minimoSalidasObjetivo = 2;
-                maxSalidasAuroraParaAcorralar = 2;
-                distanciaMaxAcorralar = 6f;
-                usarPrediccionAurora = true;
-                puedeAcorralar = true;
-                huirPreventivamente = true;
-                puedeRomperBloques = true;
+                intensidadEscape = 0.35f; nivelAgresividad = 0.85f;
+                timeBetweenMoves = 0.13f; bombChance = 0.95f; wanderChance = 0.04f;
+                probabilidadError = 0.04f; distanciaEscapeMinima = 1.8f;
+                margenSeguridadEscape = 0.4f; umbralAbortoBomba = 0.45f;
+                umbralBombaInminente = 1.6f; modoDefensivoTrasDano = 1.8f;
+                tiempoPrediccionAurora = 0.35f; distanciaDefensiva = 1.5f;
+                distanciaPersecucionIdeal = 1f; perseguirSiempre = true;
+                minimoSalidasObjetivo = 1; maxSalidasAuroraParaAcorralar = 3;
+                distanciaMaxAcorralar = 15f;
+                usarPrediccionAurora = true; puedeAcorralar = true;
+                huirPreventivamente = true; puedeRomperBloques = true;
                 break;
 
             case NivelInteligencia.Dificil:
-                timeBetweenMoves = 0.14f;
-                bombChance = 0.92f;
-                wanderChance = 0.05f;
-                probabilidadError = 0.02f;
-                distanciaEscapeMinima = 2f;
-                margenSeguridadEscape = 0.5f;
-                umbralAbortoBomba = 0.6f;
-                umbralBombaInminente = 1.8f;
-                modoDefensivoTrasDano = 1.5f;
-                tiempoPrediccionAurora = 0.45f;
-                distanciaDefensiva = 4f;
-                minimoSalidasObjetivo = 2;
-                maxSalidasAuroraParaAcorralar = 3;
-                distanciaMaxAcorralar = 8f;
-                usarPrediccionAurora = true;
-                puedeAcorralar = true;
-                huirPreventivamente = true;
-                puedeRomperBloques = true;
+                intensidadEscape = 0.45f; nivelAgresividad = 1f;
+                timeBetweenMoves = 0.10f; bombChance = 1f; wanderChance = 0.02f;
+                probabilidadError = 0f; distanciaEscapeMinima = 1.8f;
+                margenSeguridadEscape = 0.35f; umbralAbortoBomba = 0.4f;
+                umbralBombaInminente = 1.9f; modoDefensivoTrasDano = 1f;
+                tiempoPrediccionAurora = 0.5f; distanciaDefensiva = 1.2f;
+                distanciaPersecucionIdeal = 1f; perseguirSiempre = true;
+                minimoSalidasObjetivo = 1; maxSalidasAuroraParaAcorralar = 3;
+                distanciaMaxAcorralar = 20f;
+                usarPrediccionAurora = true; puedeAcorralar = true;
+                huirPreventivamente = true; puedeRomperBloques = true;
                 break;
 
             case NivelInteligencia.Experto:
-                timeBetweenMoves = 0.10f;
-                bombChance = 1.0f;
-                wanderChance = 0f;
-                probabilidadError = 0f;
-                distanciaEscapeMinima = 2f;
-                margenSeguridadEscape = 0.4f;
-                umbralAbortoBomba = 0.5f;
-                umbralBombaInminente = 2.2f;
-                modoDefensivoTrasDano = 0.5f;
-                tiempoPrediccionAurora = 0.6f;
-                distanciaDefensiva = 3.5f;
-                minimoSalidasObjetivo = 1;
-                maxSalidasAuroraParaAcorralar = 3;
-                distanciaMaxAcorralar = 10f;
-                usarPrediccionAurora = true;
-                puedeAcorralar = true;
-                huirPreventivamente = true;
-                puedeRomperBloques = true;
+                intensidadEscape = 0.55f; nivelAgresividad = 1f;
+                timeBetweenMoves = 0.08f; bombChance = 1f; wanderChance = 0f;
+                probabilidadError = 0f; distanciaEscapeMinima = 1.8f;
+                margenSeguridadEscape = 0.35f; umbralAbortoBomba = 0.35f;
+                umbralBombaInminente = 2.3f; modoDefensivoTrasDano = 0.2f;
+                tiempoPrediccionAurora = 0.65f; distanciaDefensiva = 1f;
+                distanciaPersecucionIdeal = 1f; perseguirSiempre = true;
+                minimoSalidasObjetivo = 1; maxSalidasAuroraParaAcorralar = 3;
+                distanciaMaxAcorralar = 30f;
+                usarPrediccionAurora = true; puedeAcorralar = true;
+                huirPreventivamente = true; puedeRomperBloques = true;
                 break;
 
             case NivelInteligencia.Personalizado:
-                // No modifica nada: respeta los valores del inspector
                 break;
         }
     }
 
+    // ═════════════════════════════════════════════════════════════════════════
+    // [ PROPIEDADES DERIVADAS ] — calculadas a partir de los sliders maestros
+    // ═════════════════════════════════════════════════════════════════════════
+
+    // intensidadEscape modula la distancia de escape en un rango conservador.
+    // v4.1: rango reducido (0.7x a 1.2x en vez de 0.5x a 1.5x) para que
+    // ni siquiera al máximo se aleje demasiado de Aurora tras bombear.
+    private float DistanciaEscapeEfectiva =>
+        distanciaEscapeMinima * Mathf.Lerp(0.7f, 1.2f, intensidadEscape);
+
+    private float BombChanceEfectiva =>
+        Mathf.Clamp01(bombChance * Mathf.Lerp(0.3f, 1.2f, nivelAgresividad));
+
+    private float MultiplicadorPresion => Mathf.Lerp(0.4f, 1.5f, nivelAgresividad);
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // [ CAMPOS PRIVADOS Y CACHE ]
+    // ═════════════════════════════════════════════════════════════════════════
+
     public new Rigidbody2D rigidbody { get; private set; }
     private SpritesAnimadosRender activeSpriteRenderer;
-
     private ControlBomba controlBomba;
+
     private bool iaActiva = false;
     private bool isInvincible = false;
     private bool enRecuperacion = false;
@@ -300,24 +336,38 @@ public class ControlMovimientoLysara : MonoBehaviour
     private float tiempoAtasco = 0f;
     private const float LIM_ATASCO = 0.8f;
     private const float UMBRAL = 0.05f;
-
-    private readonly Queue<Vector2> memoriaCeldas = new Queue<Vector2>();
     private const int MEMORIA_SIZE = 10;
 
-    private readonly Dictionary<Vector2, float> memoriaCalor = new Dictionary<Vector2, float>();
+    // Memoria de calor: celdas peligrosas tras explosiones recientes
+    private readonly Dictionary<Vector2, float> memoriaCalor = new Dictionary<Vector2, float>(64);
+    private readonly Queue<Vector2> memoriaCeldas = new Queue<Vector2>(MEMORIA_SIZE);
 
+    // Predicción de Aurora
     private Vector2 auroraVelocidad = Vector2.zero;
     private Vector2 auroraPosAnterior;
     private float auroraTiempoAnterior;
 
+    // Rastreo de bombas con timestamp de primer avistamiento
     private struct BombaRastreada
     {
         public Vector2 pos;
         public float tiempoPrimerAvistamiento;
         public GameObject objeto;
     }
-    private readonly Dictionary<GameObject, BombaRastreada> bombasRastreadas = new Dictionary<GameObject, BombaRastreada>();
+    private readonly Dictionary<GameObject, BombaRastreada> bombasRastreadas = new Dictionary<GameObject, BombaRastreada>(16);
     private float proximaActualizacionCache = 0f;
+
+    // OPT: Cache por tick de zonas de peligro (se reconstruye cuando cambian las bombas)
+    private readonly HashSet<Vector2> _cachePeligro = new HashSet<Vector2>();
+    private float _cachePeligroTimestamp = -1f;
+    private int _cachePeligroBombasCount = -1;
+
+    // OPT: Buffers reutilizables para evitar allocaciones
+    private readonly HashSet<Vector2> _bufferZona = new HashSet<Vector2>();
+    private readonly Queue<Vector2> _bufferCola = new Queue<Vector2>(128);
+    private readonly HashSet<Vector2> _bufferVisitadas = new HashSet<Vector2>();
+    private readonly List<GameObject> _bufferLimpieza = new List<GameObject>(16);
+    private readonly List<Vector2> _bufferLimpiezaCalor = new List<Vector2>(32);
 
     private LayerMask maskExp;
     private LayerMask maskInd;
@@ -338,8 +388,11 @@ public class ControlMovimientoLysara : MonoBehaviour
     private Coroutine _corBuclePrincipal;
     private bool abortarMovimiento = false;
 
+    // OPT: Cache del radio de explosión (se actualiza al inicio de cada tick)
+    private int _radioExplosion = 2;
+
     // ═════════════════════════════════════════════════════════════════════════
-    // INICIO
+    // [ INICIO ]
     // ═════════════════════════════════════════════════════════════════════════
 
     private void Awake()
@@ -355,8 +408,6 @@ public class ControlMovimientoLysara : MonoBehaviour
     }
 
 #if UNITY_EDITOR
-    // Se llama cuando cambias un valor en el Inspector (incluso sin entrar a Play).
-    // Así ves en tiempo real cómo afecta cambiar el nivel a los demás parámetros.
     private void OnValidate()
     {
         if (aplicarPresetAutomatico && nivelInteligencia != NivelInteligencia.Personalizado)
@@ -381,7 +432,7 @@ public class ControlMovimientoLysara : MonoBehaviour
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // RASTREO DE BOMBAS
+    // [ RASTREO DE BOMBAS Y AURORA ]
     // ═════════════════════════════════════════════════════════════════════════
 
     private void ActualizarRastreoBombas()
@@ -390,35 +441,47 @@ public class ControlMovimientoLysara : MonoBehaviour
         proximaActualizacionCache = Time.time + intervaloRefrescoCache;
 
         var bombasActuales = GameObject.FindGameObjectsWithTag("Bomba");
-        var vistasAhora = new HashSet<GameObject>();
+        _bufferLimpieza.Clear();
 
-        foreach (var b in bombasActuales)
+        // OPT: marcar las que siguen vivas usando un timestamp en lugar de un HashSet temporal
+        float tNow = Time.time;
+        for (int i = 0; i < bombasActuales.Length; i++)
         {
+            var b = bombasActuales[i];
             if (b == null || !b.activeInHierarchy) continue;
-            vistasAhora.Add(b);
 
             if (!bombasRastreadas.ContainsKey(b))
             {
                 bombasRastreadas[b] = new BombaRastreada
                 {
                     pos = Snap(b.transform.position),
-                    tiempoPrimerAvistamiento = Time.time,
+                    tiempoPrimerAvistamiento = tNow,
                     objeto = b
                 };
             }
         }
 
-        var claves = new List<GameObject>(bombasRastreadas.Keys);
-        foreach (var k in claves)
-            if (k == null || !vistasAhora.Contains(k))
-                bombasRastreadas.Remove(k);
+        // Detectar bombas que ya no existen
+        foreach (var kv in bombasRastreadas)
+        {
+            bool encontrada = false;
+            for (int i = 0; i < bombasActuales.Length; i++)
+            {
+                if (bombasActuales[i] == kv.Key) { encontrada = true; break; }
+            }
+            if (!encontrada || kv.Key == null) _bufferLimpieza.Add(kv.Key);
+        }
+        for (int i = 0; i < _bufferLimpieza.Count; i++)
+            bombasRastreadas.Remove(_bufferLimpieza[i]);
+
+        // Invalidar cache de peligro al haber cambios
+        _cachePeligroTimestamp = -1f;
     }
 
     private float TiempoRestanteBomba(BombaRastreada b)
     {
         float fuse = controlBomba != null ? controlBomba.bombFuseTime : 3f;
-        float transcurrido = Time.time - b.tiempoPrimerAvistamiento;
-        return Mathf.Max(0f, fuse - transcurrido);
+        return Mathf.Max(0f, fuse - (Time.time - b.tiempoPrimerAvistamiento));
     }
 
     private void ActualizarVelocidadAurora()
@@ -443,7 +506,7 @@ public class ControlMovimientoLysara : MonoBehaviour
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // BUCLE PRINCIPAL
+    // [ BUCLE PRINCIPAL ] — orden: AGRESIVIDAD primero, supervivencia segunda
     // ═════════════════════════════════════════════════════════════════════════
 
     private IEnumerator BuclePrincipal()
@@ -457,6 +520,9 @@ public class ControlMovimientoLysara : MonoBehaviour
             ActualizarRastreoBombas();
             ActualizarVelocidadAurora();
             LimpiarCalor();
+
+            // OPT: cachear radio para todo el tick
+            _radioExplosion = controlBomba != null ? controlBomba.explosionRadius : 2;
 
             Vector2 yo = Snap(transform.position);
 
@@ -476,13 +542,12 @@ public class ControlMovimientoLysara : MonoBehaviour
             posicionAnterior = rigidbody.position;
 
             // ══════════════════════════════════════════════════════════════
-            // PRIORIDAD 1 — SUPERVIVENCIA
+            // RED DE SEGURIDAD MÍNIMA — solo huir ante peligro extremo
+            // (fuego activo en mi celda, o aislada sin salidas)
+            // El resto del peligro lo gestionará el chequeo posterior
+            // permitiendo atacar primero si hay oportunidad clara.
             // ══════════════════════════════════════════════════════════════
-
-            // Si huirPreventivamente está desactivado, ignoramos la detección temprana de bombas
-            bool huir = HayPeligro(yo);
-            if (huirPreventivamente) huir |= PeligroInminente(yo) || AisladaPorBombas(yo);
-            if (huir)
+            if (ExplosionActivaEn(yo) || AisladaPorBombas(yo))
             {
                 estado = EstadoIA.Huir;
                 yield return StartCoroutine(HuirTactico(yo));
@@ -490,16 +555,18 @@ public class ControlMovimientoLysara : MonoBehaviour
             }
 
             // ══════════════════════════════════════════════════════════════
-            // PRIORIDAD 2 — ATAQUE (solo si completamente seguro)
+            // PRIORIDAD 1 — ATAQUE
+            // Si hay oportunidad clara de bombear y se garantiza escape,
+            // se hace AUNQUE haya bombas con mecha en el radio.
             // ══════════════════════════════════════════════════════════════
-
+            bool ataqueRealizado = false;
             if (!enRecuperacion && !EnModoDefensivo && !bombaPuesta
                 && puedeColocarBombas
                 && controlBomba != null && controlBomba.enabled)
             {
                 DecisionBomba decision = EvaluarDecisionBomba(yo);
 
-                if (decision.debeColocar && Random.value < bombChance)
+                if (decision.debeColocar && Random.value < BombChanceEfectiva)
                 {
                     List<Vector2> rutaEscape = BuscarRutaEscapeValida(yo);
                     if (rutaEscape != null && rutaEscape.Count > 0
@@ -509,31 +576,42 @@ public class ControlMovimientoLysara : MonoBehaviour
                         bombaPuesta = true;
                         RegistrarCalor(yo, CalorDuracion);
                         controlBomba.TryPlaceBomb();
-                        // Forzar refresco inmediato del rastreo para registrar la bomba recién puesta
                         proximaActualizacionCache = 0f;
                         ActualizarRastreoBombas();
                         yield return new WaitForSeconds(0.02f);
-                        // CRÍTICO: usar SeguirRutaEscape (no SeguirRuta), porque la ruta
-                        // entera empieza dentro del radio de la bomba recién colocada
                         yield return StartCoroutine(SeguirRutaEscape(rutaEscape));
-                        yield return StartCoroutine(EsperarZonaLimpia());
+                        // v4.1: ya no esperamos a que la zona esté "limpia".
+                        // En cuanto terminamos el escape, el bucle vuelve a evaluar:
+                        // si hay peligro huirá, si no, perseguirá a Aurora inmediatamente.
                         bombaPuesta = false;
-                        continue;
+                        ataqueRealizado = true;
                     }
                 }
-
-                if (decision.debeAcorralar)
+                else if (decision.debeAcorralar)
                 {
                     estado = EstadoIA.Acorralar;
                     Vector2 sig = PrimerPaso(yo, decision.celdaBloqueo);
                     if (sig != Vector2.zero && CeldaSegura(sig))
                     {
                         yield return StartCoroutine(MoverATile(sig));
-                        continue;
+                        ataqueRealizado = true;
                     }
                 }
             }
+            if (ataqueRealizado) continue;
 
+            // ══════════════════════════════════════════════════════════════
+            // PRIORIDAD 2 — HUIDA PREVENTIVA
+            // Solo entra aquí si no se pudo atacar.
+            // ══════════════════════════════════════════════════════════════
+            if (HayPeligro(yo) || (huirPreventivamente && PeligroInminente(yo)))
+            {
+                estado = EstadoIA.Huir;
+                yield return StartCoroutine(HuirTactico(yo));
+                continue;
+            }
+
+            // ── 3. POWERUP cercano ────────────────────────────────────────
             GameObject pup = recogePowerups ? PowerupSeguro(7f) : null;
             if (pup != null)
             {
@@ -546,18 +624,40 @@ public class ControlMovimientoLysara : MonoBehaviour
                 }
             }
 
-            if (Aurora != null)
+            // ── 4. PERSECUCIÓN — va DIRECTO hacia Aurora siempre ─────────
+            // v4.2: La meta por defecto es la posición exacta de Aurora.
+            // Solo usamos ObjetivoPresion si la ruta directa está bloqueada o
+            // si ya estamos muy cerca y queremos mantener línea de fuego.
+            if (Aurora != null && (perseguirSiempre || nivelAgresividad >= 0.3f))
             {
                 estado = EnModoDefensivo ? EstadoIA.Defensivo : EstadoIA.Perseguir;
                 Vector2 auroraPredicha = usarPrediccionAurora
                     ? PredecirAurora(tiempoPrediccionAurora)
                     : Snap(Aurora.position);
-                Vector2 objetivo = EnModoDefensivo
-                    ? ObjetivoDefensivo(yo, auroraPredicha)
-                    : ObjetivoPresion(yo, auroraPredicha);
+
+                // En modo defensivo: respetar distancia mínima
+                Vector2 objetivo;
+                if (EnModoDefensivo)
+                {
+                    objetivo = ObjetivoDefensivo(yo, auroraPredicha);
+                }
+                else
+                {
+                    float distAurora = Vector2.Distance(yo, auroraPredicha);
+                    // Si estoy lejos: ir DIRECTO a Aurora (mejor ruta = ruta más corta)
+                    // Si ya estoy muy cerca (distancia ≤ ideal+1): buscar celda con línea de fuego
+                    if (distAurora > distanciaPersecucionIdeal + 1f)
+                        objetivo = auroraPredicha;
+                    else
+                        objetivo = ObjetivoPresion(yo, auroraPredicha);
+                }
+
                 Vector2 siguiente = PrimerPaso(yo, objetivo);
 
-                // probabilidadError: a veces elige mal a propósito
+                // Si la ruta falló, intentar ir directamente a Aurora
+                if (siguiente == Vector2.zero)
+                    siguiente = PrimerPaso(yo, auroraPredicha);
+
                 if (siguiente != Vector2.zero && Random.value < probabilidadError)
                 {
                     Vector2 alt = CeldaAlternativa(yo, siguiente);
@@ -569,13 +669,22 @@ public class ControlMovimientoLysara : MonoBehaviour
                     if (alt != Vector2.zero) siguiente = alt;
                 }
 
-                if (siguiente != Vector2.zero && CeldaSegura(siguiente))
+                if (siguiente != Vector2.zero && !ExplosionActivaEn(siguiente))
                 {
                     yield return StartCoroutine(MoverATile(siguiente));
                     continue;
                 }
+
+                // Fallback: paso inmediato que más acerque a Aurora
+                Vector2 acercamiento = MejorPasoHaciaAurora(yo, auroraPredicha);
+                if (acercamiento != Vector2.zero && !ExplosionActivaEn(acercamiento))
+                {
+                    yield return StartCoroutine(MoverATile(acercamiento));
+                    continue;
+                }
             }
 
+            // ── 5. Deambular ──────────────────────────────────────────────
             Vector2 libre = CeldaLibreConMemoria(yo);
             if (libre != Vector2.zero && CeldaSegura(libre))
                 yield return StartCoroutine(MoverATile(libre));
@@ -584,36 +693,34 @@ public class ControlMovimientoLysara : MonoBehaviour
 
     private bool CeldaSegura(Vector2 c)
     {
-        if (HayPeligro(c)) return false;
-        if (PeligroInminente(c)) return false;
-        if (CeldaEnCalor(c)) return false;
-        return true;
+        return !HayPeligro(c) && !PeligroInminente(c) && !CeldaEnCalor(c);
     }
 
     private bool AisladaPorBombas(Vector2 yo)
     {
+        // OPT: salida temprana
         int salidasLimpias = 0;
-        foreach (Vector2 d in Dirs())
+        for (int i = 0; i < _dirs.Length; i++)
         {
-            Vector2 c = yo + d;
+            Vector2 c = yo + _dirs[i];
             if (!EsCaminable(c)) continue;
-            if (!HayPeligro(c) && !PeligroInminente(c)) salidasLimpias++;
-        }
-        if (salidasLimpias == 0)
-        {
-            foreach (var kv in bombasRastreadas)
+            if (!HayPeligro(c) && !PeligroInminente(c))
             {
-                float restante = TiempoRestanteBomba(kv.Value);
-                if (restante > 2.5f) continue;
-                int radio = controlBomba != null ? controlBomba.explosionRadius : 2;
-                if (ZonaBomba(kv.Value.pos, radio).Contains(yo)) return true;
+                salidasLimpias++;
+                if (salidasLimpias > 0) return false; // tengo al menos una salida limpia
             }
+        }
+        // Sin salidas: chequear si estoy en zona de bomba próxima a explotar
+        foreach (var kv in bombasRastreadas)
+        {
+            if (TiempoRestanteBomba(kv.Value) > 2.5f) continue;
+            if (CeldaEnZonaBomba(yo, kv.Value.pos)) return true;
         }
         return false;
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // DECISIÓN DE BOMBA
+    // [ DECISIÓN DE BOMBA ]
     // ═════════════════════════════════════════════════════════════════════════
 
     private struct DecisionBomba
@@ -626,33 +733,47 @@ public class ControlMovimientoLysara : MonoBehaviour
     private DecisionBomba EvaluarDecisionBomba(Vector2 yo)
     {
         DecisionBomba d = new DecisionBomba();
-        int r = controlBomba != null ? controlBomba.explosionRadius : 2;
-
         if (Aurora == null) return d;
+
         Vector2 posA = Snap(Aurora.position);
         Vector2 posAPredicha = usarPrediccionAurora
             ? PredecirAurora(controlBomba != null ? controlBomba.bombFuseTime * 0.6f : 1.5f)
             : posA;
 
+        // R1: Aurora en línea de fuego AHORA → bomba inmediata
         if (AuroraEnLinea(yo)) { d.debeColocar = true; return d; }
+
+        // R2: Aurora ESTARÁ en línea cuando explote (predicción)
         if (usarPrediccionAurora && AuroraEnLineaDesde(yo, posAPredicha))
         { d.debeColocar = true; return d; }
 
         float dist = ManhattanDist(yo, posA);
-        if (dist <= r + 0.6f) { d.debeColocar = true; return d; }
 
-        // Destructibles solo si tiene permitido romperlos
+        // R3: Aurora MUY cerca (distancia Manhattan ≤ radio+1). Bomba inmediata.
+        // v4.2: ampliamos el rango — si está a ≤ radio+1.5, bombeamos aunque
+        // no haya línea directa todavía (puede haber destructibles en medio).
+        if (dist <= _radioExplosion + 1.5f) { d.debeColocar = true; return d; }
+
+        // R4: bomba de proximidad con alta agresividad
+        // Si Aurora está a ≤ 3.5 celdas Y mi agresividad es alta, bombeo
+        // como medida de presión — la fuerzo a moverse.
+        if (nivelAgresividad >= 0.7f && dist <= 3.5f)
+        { d.debeColocar = true; return d; }
+
         if (puedeRomperBloques)
         {
             if (DestructibleQueExpondriaAurora(yo)) { d.debeColocar = true; return d; }
             if (DestructibleHaciaAurora(yo)) { d.debeColocar = true; return d; }
         }
 
-        // Acorralamiento solo si tiene la capacidad activada
         if (puedeAcorralar)
         {
+            int maxSalidas = maxSalidasAuroraParaAcorralar
+                + (nivelAgresividad > 0.7f ? 1 : 0);
+            float distMax = distanciaMaxAcorralar * Mathf.Lerp(0.6f, 1.4f, nivelAgresividad);
+
             int salidasAurora = ContarSalidas(posA);
-            if (salidasAurora <= maxSalidasAuroraParaAcorralar && dist <= distanciaMaxAcorralar)
+            if (salidasAurora <= maxSalidas && dist <= distMax)
             {
                 Vector2 bloqueo = EncontrarBloqueoOptimo(yo, posA);
                 if (bloqueo != yo)
@@ -672,24 +793,48 @@ public class ControlMovimientoLysara : MonoBehaviour
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // VALIDACIÓN ESTRICTA DE ESCAPE
+    // [ VALIDACIÓN DE ESCAPE ]
     // ═════════════════════════════════════════════════════════════════════════
 
+    // Busca una ruta de escape VÁLIDA antes de colocar una bomba.
+    // v4.1: hace DOS pasadas — primero intenta el escape estricto con todas
+    // las garantías. Si falla (mucha paranoia), intenta un escape mínimo viable
+    // que solo exige salir del radio de explosión antes de que detone.
     private List<Vector2> BuscarRutaEscapeValida(Vector2 desde)
     {
-        int radio = controlBomba != null ? controlBomba.explosionRadius : 2;
         float fuseTime = controlBomba != null ? controlBomba.bombFuseTime : 3f;
-        float tiempoMaxEscape = fuseTime - umbralAbortoBomba;
+
+        // ── PRIMERA PASADA: escape estricto (el de siempre) ──
+        var rutaEstricta = BuscarRutaEscapeInterna(desde, fuseTime, DistanciaEscapeEfectiva,
+            margenSeguridadEscape, umbralAbortoBomba, exigirFueraPeligro: true);
+        if (rutaEstricta != null) return rutaEstricta;
+
+        // ── SEGUNDA PASADA: escape mínimo viable ──
+        // Lysara acepta bombear aunque el escape no sea ideal, siempre que:
+        //   · Salga del radio de explosión de SU propia bomba
+        //   · Tenga un pequeño margen de tiempo (fuseTime - 0.3s)
+        // Esto permite bombear agresivamente en escenarios de proximidad
+        // sin volverse suicida: la celda destino sigue siendo una que NO explota.
+        return BuscarRutaEscapeInterna(desde, fuseTime, 1.5f,
+            0.25f, 0.3f, exigirFueraPeligro: true);
+    }
+
+    private List<Vector2> BuscarRutaEscapeInterna(Vector2 desde, float fuseTime,
+        float distMinReal, float margenSeg, float umbralAborto, bool exigirFueraPeligro)
+    {
+        float tiempoMaxEscape = fuseTime - umbralAborto;
         if (tiempoMaxEscape <= 0) return null;
 
-        HashSet<Vector2> peligro = ZonaBomba(desde, radio);
+        // Zona peligrosa: SOLO la bomba que vamos a colocar + bombas existentes
+        // (no incluimos calor ni bombas remotas irrelevantes)
+        var peligro = new HashSet<Vector2>(32);
+        AgregarZonaBomba(peligro, desde);
         foreach (var kv in bombasRastreadas)
-            foreach (var c in ZonaBomba(kv.Value.pos, radio))
-                peligro.Add(c);
+            AgregarZonaBomba(peligro, kv.Value.pos);
 
-        Queue<Vector2> cola = new Queue<Vector2>();
-        Dictionary<Vector2, Vector2> padre = new Dictionary<Vector2, Vector2>();
-        Dictionary<Vector2, int> distancia = new Dictionary<Vector2, int>();
+        var cola = new Queue<Vector2>(32);
+        var padre = new Dictionary<Vector2, Vector2>(32);
+        var distancia = new Dictionary<Vector2, int>(32);
 
         cola.Enqueue(desde);
         padre[desde] = desde;
@@ -705,23 +850,25 @@ public class ControlMovimientoLysara : MonoBehaviour
             int dist = distancia[actual];
             float tiempoNecesario = dist * timeBetweenMoves;
 
-            bool segura = !peligro.Contains(actual) && !CeldaEnCalor(actual);
-            bool lejosSuficiente = Vector2.Distance(desde, actual) >= distanciaEscapeMinima;
-            bool aTiempo = tiempoNecesario + margenSeguridadEscape <= tiempoMaxEscape;
+            bool fueraPeligro = !peligro.Contains(actual);
+            bool lejosSuficiente = Vector2.Distance(desde, actual) >= distMinReal;
+            bool aTiempo = tiempoNecesario + margenSeg <= tiempoMaxEscape;
 
-            if (actual != desde && segura && lejosSuficiente && aTiempo)
+            bool valida = actual != desde && fueraPeligro && lejosSuficiente && aTiempo;
+
+            if (valida)
             {
                 float score = 0f;
-                score += ContarSalidas(actual) * 30f;
-                score -= dist * 2f;
-                score += Vector2.Distance(desde, actual) * 4f;
-                score += DistBomba(actual) * 5f;
+                score += ContarSalidas(actual) * 20f;
+                // Preferimos rutas cortas (menos tiempo expuesta)
+                score -= dist * 4f;
+                score += DistBomba(actual) * 3f;
                 if (score > mejorScore) { mejorScore = score; mejorDest = actual; }
             }
 
-            foreach (Vector2 dir in Dirs())
+            for (int i = 0; i < _dirs.Length; i++)
             {
-                Vector2 v = actual + dir;
+                Vector2 v = actual + _dirs[i];
                 if (padre.ContainsKey(v)) continue;
                 if (!EsCaminable(v)) continue;
                 if (HayPeligro(v)) continue;
@@ -733,7 +880,7 @@ public class ControlMovimientoLysara : MonoBehaviour
 
         if (mejorDest == Vector2.zero) return null;
 
-        List<Vector2> ruta = new List<Vector2>();
+        var ruta = new List<Vector2>(8);
         Vector2 paso = mejorDest;
         while (paso != desde)
         {
@@ -744,63 +891,91 @@ public class ControlMovimientoLysara : MonoBehaviour
         return ruta;
     }
 
-    // Sanity check pre-bomba: la ruta no debe pasar por explosión activa.
-    // NO chequeamos HayPeligro (radio de bomba) porque la propia bomba que vamos
-    // a colocar meterá todas las celdas del radio en ese estado.
     private bool EscapeSigueSiendoSeguro(List<Vector2> ruta)
     {
         if (ruta == null || ruta.Count == 0) return false;
-        foreach (var c in ruta)
-            if (ExplosionActivaEn(c)) return false;
+        for (int i = 0; i < ruta.Count; i++)
+            if (ExplosionActivaEn(ruta[i])) return false;
         return true;
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // DETECCIÓN DE PELIGRO
+    // [ DETECCIÓN DE PELIGRO ]
     // ═════════════════════════════════════════════════════════════════════════
 
+    private bool ExplosionActivaEn(Vector2 celda)
+    {
+        return Physics2D.OverlapCircle(celda, 0.42f, maskExp) != null;
+    }
+
+    // OPT: si la celda está marcada como peligro O hay fuego activo
     private bool HayPeligro(Vector2 celda)
     {
         if (Physics2D.OverlapCircle(celda, 0.42f, maskExp) != null) return true;
-        int radio = controlBomba != null ? controlBomba.explosionRadius : 2;
+        // Comprobar si está en zona de alguna bomba
         foreach (var kv in bombasRastreadas)
-            if (ZonaBomba(kv.Value.pos, radio).Contains(celda)) return true;
+            if (CeldaEnZonaBomba(celda, kv.Value.pos)) return true;
         return false;
     }
 
     private bool PeligroInminente(Vector2 celda)
     {
-        int radio = controlBomba != null ? controlBomba.explosionRadius : 2;
         foreach (var kv in bombasRastreadas)
         {
-            float restante = TiempoRestanteBomba(kv.Value);
-            if (restante > umbralBombaInminente) continue;
-            if (ZonaBomba(kv.Value.pos, radio).Contains(celda)) return true;
+            if (TiempoRestanteBomba(kv.Value) > umbralBombaInminente) continue;
+            if (CeldaEnZonaBomba(celda, kv.Value.pos)) return true;
         }
         return false;
     }
 
-    private HashSet<Vector2> ZonasActivasDePeligro(int radio)
+    // OPT: comprueba si una celda está en la zona de una bomba SIN construir el HashSet completo
+    private bool CeldaEnZonaBomba(Vector2 celda, Vector2 centroBomba)
     {
-        var z = new HashSet<Vector2>();
-        foreach (var kv in bombasRastreadas)
-            foreach (var c in ZonaBomba(kv.Value.pos, radio)) z.Add(c);
-        return z;
+        if (celda == centroBomba) return true;
+        // Solo puede estar en línea recta del centro
+        if (celda.x != centroBomba.x && celda.y != centroBomba.y) return false;
+
+        Vector2 dir;
+        int distancia;
+        if (celda.x == centroBomba.x)
+        {
+            distancia = Mathf.Abs((int)(celda.y - centroBomba.y));
+            dir = celda.y > centroBomba.y ? Vector2.up : Vector2.down;
+        }
+        else
+        {
+            distancia = Mathf.Abs((int)(celda.x - centroBomba.x));
+            dir = celda.x > centroBomba.x ? Vector2.right : Vector2.left;
+        }
+
+        if (distancia > _radioExplosion) return false;
+
+        // Verificar que no haya muros bloqueando
+        for (int i = 1; i <= distancia; i++)
+        {
+            Vector2 c = centroBomba + dir * i;
+            if (EsIndestructible(c)) return false; // muro bloquea antes de llegar
+            if (c == celda) return true;
+            if (EsDestructible(c)) return false; // destructible bloquea antes
+        }
+        return false;
     }
 
-    private HashSet<Vector2> ZonaBomba(Vector2 centro, int radio)
+    // Versión que SÍ construye el set (necesaria para algunos cálculos completos)
+    private void AgregarZonaBomba(HashSet<Vector2> destino, Vector2 centro)
     {
-        var z = new HashSet<Vector2>();
-        z.Add(centro);
-        foreach (Vector2 dir in Dirs())
-            for (int i = 1; i <= radio; i++)
+        destino.Add(centro);
+        for (int dirIdx = 0; dirIdx < _dirs.Length; dirIdx++)
+        {
+            Vector2 dir = _dirs[dirIdx];
+            for (int i = 1; i <= _radioExplosion; i++)
             {
                 Vector2 c = centro + dir * i;
                 if (EsIndestructible(c)) break;
-                z.Add(c);
+                destino.Add(c);
                 if (EsDestructible(c)) break;
             }
-        return z;
+        }
     }
 
     private float DistBomba(Vector2 desde)
@@ -815,48 +990,36 @@ public class ControlMovimientoLysara : MonoBehaviour
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // HUIDA TÁCTICA
-    //
-    // IMPORTANTE (fix v3.2):
-    //  · Distinguimos "ExplosionActiva" (fuego real en la celda = muerte inmediata)
-    //    de "HayPeligro" (en radio de una bomba con mecha = peligro futuro).
-    //  · Al huir de una bomba recién colocada, la ruta COMPLETA atraviesa zona
-    //    en radio de bomba; eso es normal y no debe abortar la huida.
-    //  · Solo abortamos y recalculamos si aparece una explosión REAL en el camino.
-    //  · Sin recursión mutua: ninguna función de seguir-ruta vuelve a llamar HuirTactico.
+    // [ HUIDA TÁCTICA ]
     // ═════════════════════════════════════════════════════════════════════════
-
-    // Solo detecta explosiones activas (fuego real).
-    // Esto es lo ÚNICO que debe abortar una huida en curso.
-    private bool ExplosionActivaEn(Vector2 celda)
-    {
-        return Physics2D.OverlapCircle(celda, 0.42f, maskExp) != null;
-    }
 
     private IEnumerator HuirTactico(Vector2 desde)
     {
-        int radio = controlBomba != null ? controlBomba.explosionRadius : 2;
-        HashSet<Vector2> peligro = ZonasActivasDePeligro(radio);
+        // Construir set de peligro UNA vez para esta huida
+        var peligro = new HashSet<Vector2>(32);
+        foreach (var kv in bombasRastreadas)
+            AgregarZonaBomba(peligro, kv.Value.pos);
+
         Vector2 destino = CeldaMasSeguraTactica(desde, peligro);
 
         if (destino == desde)
         {
-            // Fallback 1: cualquier vecina fuera de zona de peligro
-            foreach (Vector2 d in DirsAleatorio())
+            // Fallback 1: vecina fuera de peligro
+            for (int i = 0; i < _dirs.Length; i++)
             {
-                Vector2 c = desde + d;
+                Vector2 c = desde + _dirs[i];
                 if (EsCaminable(c) && !peligro.Contains(c))
                 {
                     destino = c;
                     break;
                 }
             }
-            // Fallback 2: cualquier vecina caminable que no sea fuego directo
+            // Fallback 2: vecina sin fuego activo
             if (destino == desde)
             {
-                foreach (Vector2 d in DirsAleatorio())
+                for (int i = 0; i < _dirs.Length; i++)
                 {
-                    Vector2 c = desde + d;
+                    Vector2 c = desde + _dirs[i];
                     if (EsCaminable(c) && !ExplosionActivaEn(c)) { destino = c; break; }
                 }
                 if (destino == desde) yield break;
@@ -866,32 +1029,44 @@ public class ControlMovimientoLysara : MonoBehaviour
         List<Vector2> ruta = RutaBFSEscape(desde, destino);
         if (ruta == null || ruta.Count == 0) yield break;
 
+        // Recortar ruta: tras huir, queremos estar DENTRO del alcance de Aurora
+        // para contraatacar rápido. v4.1: recorte más agresivo, solo salimos
+        // del peligro + 1-2 pasos de colchón, nunca al rincón más lejano.
+        if (ruta.Count > 2)
+        {
+            int corteMin = 1;
+            for (int i = 0; i < ruta.Count; i++)
+            {
+                if (!peligro.Contains(ruta[i])) { corteMin = i + 1; break; }
+            }
+            // El colchón extra depende de intensidadEscape (0-2 pasos extra)
+            int colchon = Mathf.RoundToInt(Mathf.Lerp(0f, 2f, intensidadEscape));
+            int corte = Mathf.Min(ruta.Count, corteMin + colchon);
+            if (corte < ruta.Count)
+                ruta = ruta.GetRange(0, corte);
+        }
+
         yield return StartCoroutine(SeguirRutaEscape(ruta));
     }
 
-    // Ruta de huida: se ejecuta COMPLETA salvo que aparezca fuego real.
-    // NO aborta por "estar en radio de bomba" (eso es lo normal al huir de tu propia bomba).
     private IEnumerator SeguirRutaEscape(List<Vector2> ruta)
     {
         if (ruta == null) yield break;
-        foreach (Vector2 paso in ruta)
+        for (int i = 0; i < ruta.Count; i++)
         {
-            // Solo abortamos si hay FUEGO ACTIVO en el siguiente paso (muerte instantánea)
-            if (ExplosionActivaEn(paso)) yield break;
-            yield return StartCoroutine(MoverATile(paso));
+            if (ExplosionActivaEn(ruta[i])) yield break;
+            yield return StartCoroutine(MoverATile(ruta[i]));
             if (abortarMovimiento) { abortarMovimiento = false; yield break; }
         }
     }
 
-    // Rutas no-escape (persecución, acorralamiento, powerups):
-    // SÍ aborta ante peligro potencial porque no debería estar metiéndose ahí.
     private IEnumerator SeguirRuta(List<Vector2> ruta)
     {
         if (ruta == null) yield break;
-        foreach (Vector2 paso in ruta)
+        for (int i = 0; i < ruta.Count; i++)
         {
-            if (HayPeligro(paso) || CeldaEnCalor(paso)) yield break;
-            yield return StartCoroutine(MoverATile(paso));
+            if (HayPeligro(ruta[i]) || CeldaEnCalor(ruta[i])) yield break;
+            yield return StartCoroutine(MoverATile(ruta[i]));
             if (abortarMovimiento) { abortarMovimiento = false; yield break; }
         }
     }
@@ -902,10 +1077,8 @@ public class ControlMovimientoLysara : MonoBehaviour
             ? controlBomba.bombFuseTime + controlBomba.explosionDuration + 1.0f
             : 5f;
         float t = 0f;
-        // Limitamos iteraciones para prevenir bucles infinitos
-        int maxIter = 30;
         int iter = 0;
-        while (t < tMax && iter++ < maxIter)
+        while (t < tMax && iter++ < 30)
         {
             Vector2 yo = Snap(transform.position);
             if (!HayPeligro(yo) && !PeligroInminente(yo)) yield break;
@@ -917,66 +1090,90 @@ public class ControlMovimientoLysara : MonoBehaviour
 
     private Vector2 CeldaMasSeguraTactica(Vector2 desde, HashSet<Vector2> peligro)
     {
-        Queue<Vector2> cola = new Queue<Vector2>();
-        HashSet<Vector2> visitadas = new HashSet<Vector2>();
-        cola.Enqueue(desde); visitadas.Add(desde);
+        _bufferCola.Clear();
+        _bufferVisitadas.Clear();
+        _bufferCola.Enqueue(desde);
+        _bufferVisitadas.Add(desde);
 
         Vector2 mejorCelda = desde;
         float mejorScore = float.MinValue;
 
-        while (cola.Count > 0 && visitadas.Count < limiteBFS)
+        while (_bufferCola.Count > 0 && _bufferVisitadas.Count < limiteBFS)
         {
-            Vector2 actual = cola.Dequeue();
+            Vector2 actual = _bufferCola.Dequeue();
 
             float score = 0f;
             if (!peligro.Contains(actual)) score += 300f;
             if (!CeldaEnCalor(actual)) score += 80f;
             score += ContarSalidas(actual) * 35f;
-            score += DistBomba(actual) * 10f;
+            float pesoDist = Mathf.Lerp(2f, 12f, intensidadEscape);
+            score += DistBomba(actual) * pesoDist;
             if (memoriaCeldas.Contains(actual)) score -= 12f;
             score += Random.Range(-5f, 5f);
 
             if (score > mejorScore) { mejorScore = score; mejorCelda = actual; }
 
-            foreach (Vector2 d in Dirs())
+            for (int i = 0; i < _dirs.Length; i++)
             {
-                Vector2 v = actual + d;
-                if (!visitadas.Contains(v) && EsCaminable(v))
-                { visitadas.Add(v); cola.Enqueue(v); }
+                Vector2 v = actual + _dirs[i];
+                if (!_bufferVisitadas.Contains(v) && EsCaminable(v))
+                { _bufferVisitadas.Add(v); _bufferCola.Enqueue(v); }
             }
         }
         return mejorCelda;
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // PERSECUCIÓN
+    // [ PERSECUCIÓN ]
     // ═════════════════════════════════════════════════════════════════════════
 
+    // Busca la celda MÁS CERCANA a Aurora que sea alcanzable y segura.
+    // La cercanía es lo que manda: entre dos celdas válidas, siempre la más pegada.
+    // Solo se usan desempates (línea de fuego, salidas) cuando la distancia es igual.
     private Vector2 ObjetivoPresion(Vector2 yo, Vector2 posAurora)
     {
         if (Aurora == null) return yo;
-        int radio = controlBomba != null ? controlBomba.explosionRadius : 2;
 
         Vector2 mejor = posAurora;
         float mejorScore = float.MinValue;
 
-        foreach (Vector2 dir in Dirs())
-        {
-            for (int r = 1; r <= radio + 1; r++)
-            {
-                Vector2 c = posAurora + dir * r;
-                if (EsIndestructible(c)) break;
-                if (!EsCaminable(c) || HayPeligro(c) || CeldaEnCalor(c)) continue;
-                if (ContarSalidas(c) < minimoSalidasObjetivo) continue;
+        // Buscamos en un cuadrado alrededor de Aurora. Radio amplio para no perderla.
+        int radioBusqueda = _radioExplosion + 3
+            + Mathf.RoundToInt(Mathf.Lerp(0f, 3f, nivelAgresividad));
 
-                float score = 0f;
-                if (AuroraEnLineaDesde(c, posAurora)) score += 100f;
-                score -= Vector2.Distance(yo, c) * 5f;
-                score -= ContarSalidas(posAurora) * 8f;
-                score += (4 - ContarSalidas(c)) * 8f;
-                score += ContarSalidas(c) * 15f;
+        for (int dx = -radioBusqueda; dx <= radioBusqueda; dx++)
+        {
+            for (int dy = -radioBusqueda; dy <= radioBusqueda; dy++)
+            {
+                Vector2 c = new Vector2(posAurora.x + dx, posAurora.y + dy);
+                if (!EsCaminable(c) || HayPeligro(c) || CeldaEnCalor(c)) continue;
+
+                float distAurora = Vector2.Distance(c, posAurora);
+
+                // CORE: la cercanía domina. Cuanto más cerca de Aurora, mejor.
+                // Penalizamos MUCHO la distancia a Aurora.
+                float score = -distAurora * 100f;
+
+                // Bonus si estamos a la distancia ideal O más cerca (¡mejor aún!)
+                if (distAurora <= distanciaPersecucionIdeal)
+                    score += 150f;
+
+                // Bonus MUY fuerte por línea de fuego — esto le da preferencia
+                // cuando hay varias celdas a distancia similar
+                if (AuroraEnLineaDesde(c, posAurora)) score += 120f * MultiplicadorPresion;
+
+                // Pequeña penalización por estar lejos de mi posición actual
+                // (si puedo elegir entre dos celdas igual de cerca de Aurora,
+                // prefiero la que me queda más cerca a mí)
+                score -= Vector2.Distance(c, yo) * 2f;
+
+                // Evitar celdas sin escape (muy importante para no suicidarse)
+                if (ContarSalidas(c) == 0) score -= 500f;
+                else score += ContarSalidas(c) * 3f;
+
+                // Fuerte penalización si está en zona de bomba existente
                 foreach (var kv in bombasRastreadas)
-                    if (ZonaBomba(kv.Value.pos, radio).Contains(c)) score -= 100f;
+                    if (CeldaEnZonaBomba(c, kv.Value.pos)) { score -= 200f; break; }
 
                 if (score > mejorScore) { mejorScore = score; mejor = c; }
             }
@@ -984,42 +1181,85 @@ public class ControlMovimientoLysara : MonoBehaviour
         return mejor;
     }
 
+    // Fallback insistente: escoge el vecino que más reduzca la distancia
+    // a Aurora. Solo evita fuego activo — cualquier otra amenaza se gestiona
+    // en el bucle principal.
+    private Vector2 MejorPasoHaciaAurora(Vector2 yo, Vector2 posAurora)
+    {
+        Vector2 mejor = Vector2.zero;
+        float mejorScore = float.MinValue;
+        float distActual = Vector2.Distance(yo, posAurora);
+
+        for (int i = 0; i < _dirs.Length; i++)
+        {
+            Vector2 c = yo + _dirs[i];
+            if (!EsCaminable(c) || ExplosionActivaEn(c)) continue;
+
+            float distNueva = Vector2.Distance(c, posAurora);
+            float score = distActual - distNueva; // positivo = más cerca
+
+            // Penalizar ligeramente si la celda está en radio de bomba
+            // (aceptable pero no preferido)
+            if (HayPeligro(c)) score -= 0.3f;
+
+            // Bonus por línea de fuego cuando ya estamos cerca
+            if (distActual <= distanciaPersecucionIdeal + 1f
+                && AuroraEnLineaDesde(c, posAurora))
+                score += 0.5f;
+
+            if (score > mejorScore) { mejorScore = score; mejor = c; }
+        }
+        return mejor;
+    }
+
+    // Modo defensivo tras recibir daño: sigue persiguiendo a Aurora pero
+    // manteniendo una distancia un poco mayor para no morir otra vez.
+    // YA NO se aleja al rincón — solo respeta la distancia defensiva.
     private Vector2 ObjetivoDefensivo(Vector2 yo, Vector2 posAurora)
     {
         if (Aurora == null) return yo;
 
         Vector2 mejor = yo;
         float mejorScore = float.MinValue;
-        Queue<Vector2> cola = new Queue<Vector2>();
-        HashSet<Vector2> vis = new HashSet<Vector2>();
-        cola.Enqueue(yo); vis.Add(yo);
+        _bufferCola.Clear();
+        _bufferVisitadas.Clear();
+        _bufferCola.Enqueue(yo);
+        _bufferVisitadas.Add(yo);
 
-        while (cola.Count > 0 && vis.Count < 200)
+        while (_bufferCola.Count > 0 && _bufferVisitadas.Count < 200)
         {
-            Vector2 a = cola.Dequeue();
+            Vector2 a = _bufferCola.Dequeue();
             float distAurora = Vector2.Distance(a, posAurora);
 
-            if (distAurora >= distanciaDefensiva && !HayPeligro(a) && !CeldaEnCalor(a)
-                && ContarSalidas(a) >= minimoSalidasObjetivo)
+            if (!HayPeligro(a) && !CeldaEnCalor(a))
             {
                 float score = 0f;
-                score -= Mathf.Abs(distAurora - distanciaDefensiva) * 5f;
-                score += ContarSalidas(a) * 10f;
+                // Preferir celdas EN o CERCA de la distancia defensiva (no más lejos)
+                float errorDist = Mathf.Abs(distAurora - distanciaDefensiva);
+                score -= errorDist * 15f;
+
+                // Bonus fuerte por estar a distancia defensiva exacta
+                if (distAurora >= distanciaDefensiva - 0.5f
+                    && distAurora <= distanciaDefensiva + 1f)
+                    score += 50f;
+
+                score += ContarSalidas(a) * 8f;
                 score -= Vector2.Distance(yo, a) * 2f;
                 if (score > mejorScore) { mejorScore = score; mejor = a; }
             }
 
-            foreach (Vector2 d in Dirs())
+            for (int i = 0; i < _dirs.Length; i++)
             {
-                Vector2 v = a + d;
-                if (!vis.Contains(v) && EsCaminable(v)) { vis.Add(v); cola.Enqueue(v); }
+                Vector2 v = a + _dirs[i];
+                if (!_bufferVisitadas.Contains(v) && EsCaminable(v))
+                { _bufferVisitadas.Add(v); _bufferCola.Enqueue(v); }
             }
         }
         return mejor;
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // BFS
+    // [ BFS ] — pathfinding
     // ═════════════════════════════════════════════════════════════════════════
 
     private Vector2 PrimerPaso(Vector2 inicio, Vector2 meta)
@@ -1028,93 +1268,89 @@ public class ControlMovimientoLysara : MonoBehaviour
         return ruta.Count > 0 ? ruta[0] : Vector2.zero;
     }
 
+    // BFS principal usado para persecución y navegación general.
+    // v4.2: solo evita peligro REAL (explosión activa + radio de bomba).
+    // Ignora peligroInminente y calor — esas amenazas se gestionan con
+    // chequeos previos en el bucle principal. Esto permite que Lysara
+    // atraviese zonas "con mecha" si eso la lleva más rápido a Aurora.
     private List<Vector2> RutaBFS(Vector2 inicio, Vector2 meta)
     {
         Vector2Int s = VI(inicio), g = VI(meta);
-        var result = new List<Vector2>();
+        var result = new List<Vector2>(8);
         if (s == g) return result;
 
-        var cola = new Queue<Vector2Int>();
-        var padre = new Dictionary<Vector2Int, Vector2Int>();
+        var cola = new Queue<Vector2Int>(64);
+        var padre = new Dictionary<Vector2Int, Vector2Int>(64);
         cola.Enqueue(s); padre[s] = s;
 
-        Vector2Int[] dirs = { new Vector2Int(0,1), new Vector2Int(0,-1),
-                               new Vector2Int(-1,0), new Vector2Int(1,0) };
         bool ok = false;
         while (cola.Count > 0 && padre.Count < limiteBFS)
         {
             Vector2Int c = cola.Dequeue();
             if (c == g) { ok = true; break; }
-            foreach (var d in dirs)
+            for (int i = 0; i < _dirsInt.Length; i++)
             {
-                Vector2Int v = c + d;
+                Vector2Int v = c + _dirsInt[i];
                 if (padre.ContainsKey(v)) continue;
                 Vector2 w = new Vector2(v.x, v.y);
-                bool segura = v == g || (EsCaminable(w) && !HayPeligro(w)
-                                          && !PeligroInminente(w) && !CeldaEnCalor(w));
+                // Permisivo: solo muros y peligro directo (radio de bomba) nos bloquean
+                bool segura = v == g || (EsCaminable(w) && !HayPeligro(w));
                 if (segura) { padre[v] = c; cola.Enqueue(v); }
             }
         }
         if (!ok) return result;
 
-        var pila = new List<Vector2>();
         Vector2Int paso = g;
-        while (paso != s) { pila.Add(new Vector2(paso.x, paso.y)); paso = padre[paso]; }
-        pila.Reverse();
-        return pila;
+        while (paso != s) { result.Add(new Vector2(paso.x, paso.y)); paso = padre[paso]; }
+        result.Reverse();
+        return result;
     }
 
-    // BFS permisivo para emergencias: evita explosión activa pero puede pasar
-    // por peligro inminente o calor si no hay mejor alternativa
     private List<Vector2> RutaBFSEscape(Vector2 inicio, Vector2 meta)
     {
         Vector2Int s = VI(inicio), g = VI(meta);
-        var result = new List<Vector2>();
+        var result = new List<Vector2>(8);
         if (s == g) return result;
 
-        var cola = new Queue<Vector2Int>();
-        var padre = new Dictionary<Vector2Int, Vector2Int>();
+        var cola = new Queue<Vector2Int>(64);
+        var padre = new Dictionary<Vector2Int, Vector2Int>(64);
         cola.Enqueue(s); padre[s] = s;
 
-        Vector2Int[] dirs = { new Vector2Int(0,1), new Vector2Int(0,-1),
-                               new Vector2Int(-1,0), new Vector2Int(1,0) };
         bool ok = false;
         while (cola.Count > 0 && padre.Count < limiteBFS)
         {
             Vector2Int c = cola.Dequeue();
             if (c == g) { ok = true; break; }
-            foreach (var d in dirs)
+            for (int i = 0; i < _dirsInt.Length; i++)
             {
-                Vector2Int v = c + d;
+                Vector2Int v = c + _dirsInt[i];
                 if (padre.ContainsKey(v)) continue;
                 Vector2 w = new Vector2(v.x, v.y);
-                // Permitimos pasar por peligro inminente/calor, pero NUNCA por explosión activa
                 bool libre = v == g || (EsCaminable(w) && !HayPeligro(w));
                 if (libre) { padre[v] = c; cola.Enqueue(v); }
             }
         }
         if (!ok) return result;
 
-        var pila = new List<Vector2>();
         Vector2Int paso = g;
-        while (paso != s) { pila.Add(new Vector2(paso.x, paso.y)); paso = padre[paso]; }
-        pila.Reverse();
-        return pila;
+        while (paso != s) { result.Add(new Vector2(paso.x, paso.y)); paso = padre[paso]; }
+        result.Reverse();
+        return result;
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // ACORRALAMIENTO
+    // [ ACORRALAMIENTO ]
     // ═════════════════════════════════════════════════════════════════════════
 
     private Vector2 EncontrarBloqueoOptimo(Vector2 yo, Vector2 posAurora)
     {
         Vector2 mejor = yo;
         float menorD = Mathf.Infinity;
-        int r = controlBomba != null ? controlBomba.explosionRadius : 2;
 
-        foreach (Vector2 dir in Dirs())
+        for (int dirIdx = 0; dirIdx < _dirs.Length; dirIdx++)
         {
-            for (int i = 1; i <= r + 2; i++)
+            Vector2 dir = _dirs[dirIdx];
+            for (int i = 1; i <= _radioExplosion + 2; i++)
             {
                 Vector2 c = posAurora + dir * i;
                 if (EsIndestructible(c)) break;
@@ -1122,12 +1358,12 @@ public class ControlMovimientoLysara : MonoBehaviour
 
                 if (AuroraEnLineaDesde(c, posAurora))
                 {
-                    HashSet<Vector2> peligro = ZonaBomba(c, r);
+                    // OPT: comprobar escape SIN construir HashSet
                     bool hayEscape = false;
-                    foreach (Vector2 dd in Dirs())
+                    for (int j = 0; j < _dirs.Length; j++)
                     {
-                        Vector2 cc = c + dd;
-                        if (EsCaminable(cc) && !peligro.Contains(cc) && !CeldaEnCalor(cc))
+                        Vector2 cc = c + _dirs[j];
+                        if (EsCaminable(cc) && !CeldaEnZonaBomba(cc, c) && !CeldaEnCalor(cc))
                         { hayEscape = true; break; }
                     }
                     if (!hayEscape) continue;
@@ -1141,7 +1377,7 @@ public class ControlMovimientoLysara : MonoBehaviour
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // DETECCIÓN DE AURORA
+    // [ DETECCIÓN DE AURORA ]
     // ═════════════════════════════════════════════════════════════════════════
 
     private bool AuroraEnLinea(Vector2 yo)
@@ -1152,19 +1388,17 @@ public class ControlMovimientoLysara : MonoBehaviour
 
     private bool AuroraEnLineaDesde(Vector2 desde, Vector2 posAurora)
     {
-        int r = controlBomba != null ? controlBomba.explosionRadius : 2;
-
         if (Mathf.Abs(posAurora.y - desde.y) < 0.1f)
         {
             float dist = Mathf.Abs(posAurora.x - desde.x);
-            if (dist > 0.1f && dist <= r)
+            if (dist > 0.1f && dist <= _radioExplosion)
                 if (!MuroEntre(desde, posAurora, posAurora.x > desde.x ? Vector2.right : Vector2.left))
                     return true;
         }
         if (Mathf.Abs(posAurora.x - desde.x) < 0.1f)
         {
             float dist = Mathf.Abs(posAurora.y - desde.y);
-            if (dist > 0.1f && dist <= r)
+            if (dist > 0.1f && dist <= _radioExplosion)
                 if (!MuroEntre(desde, posAurora, posAurora.y > desde.y ? Vector2.up : Vector2.down))
                     return true;
         }
@@ -1186,17 +1420,17 @@ public class ControlMovimientoLysara : MonoBehaviour
     private bool DestructibleQueExpondriaAurora(Vector2 yo)
     {
         if (Aurora == null) return false;
-        int r = controlBomba != null ? controlBomba.explosionRadius : 2;
+        Vector2 posA = Snap(Aurora.position);
 
-        foreach (Vector2 dir in Dirs())
+        for (int dirIdx = 0; dirIdx < _dirs.Length; dirIdx++)
         {
-            for (int i = 1; i <= r; i++)
+            Vector2 dir = _dirs[dirIdx];
+            for (int i = 1; i <= _radioExplosion; i++)
             {
                 Vector2 c = yo + dir * i;
                 if (EsIndestructible(c)) break;
                 if (!EsDestructible(c)) continue;
-                Vector2 detras = c + dir;
-                if (Snap(Aurora.position) == detras) return true;
+                if (posA == c + dir) return true;
                 break;
             }
         }
@@ -1207,40 +1441,43 @@ public class ControlMovimientoLysara : MonoBehaviour
     {
         if (Aurora == null) return false;
         Vector2 a = Snap(Aurora.position);
-        foreach (Vector2 dir in Dirs())
+        Vector2 toA = (a - yo).normalized;
+
+        for (int i = 0; i < _dirs.Length; i++)
         {
-            Vector2 v = yo + dir;
+            Vector2 v = yo + _dirs[i];
             if (!EsDestructible(v)) continue;
-            if (Vector2.Dot(dir, (a - yo).normalized) > 0.5f) return true;
+            if (Vector2.Dot(_dirs[i], toA) > 0.5f) return true;
         }
         return false;
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // ANÁLISIS
+    // [ ANÁLISIS / POWERUPS / CALOR ]
     // ═════════════════════════════════════════════════════════════════════════
 
     private int ContarSalidas(Vector2 celda)
     {
         int n = 0;
-        foreach (Vector2 d in Dirs())
-            if (EsCaminable(celda + d) && !HayPeligro(celda + d)) n++;
+        for (int i = 0; i < _dirs.Length; i++)
+        {
+            Vector2 c = celda + _dirs[i];
+            if (EsCaminable(c) && !HayPeligro(c)) n++;
+        }
         return n;
     }
 
     private float ManhattanDist(Vector2 a, Vector2 b) =>
         Mathf.Abs(a.x - b.x) + Mathf.Abs(a.y - b.y);
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // POWERUPS
-    // ═════════════════════════════════════════════════════════════════════════
-
     private GameObject PowerupSeguro(float radio)
     {
         GameObject mejor = null;
         float min = Mathf.Infinity;
-        foreach (var h in Physics2D.OverlapCircleAll(transform.position, radio))
+        var hits = Physics2D.OverlapCircleAll(transform.position, radio);
+        for (int i = 0; i < hits.Length; i++)
         {
+            var h = hits[i];
             if (!h.CompareTag("Powerup")) continue;
             Vector2 cp = Snap(h.transform.position);
             if (HayPeligro(cp) || PeligroInminente(cp) || CeldaEnCalor(cp)) continue;
@@ -1250,20 +1487,16 @@ public class ControlMovimientoLysara : MonoBehaviour
         return mejor;
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // CALOR
-    // ═════════════════════════════════════════════════════════════════════════
-
     private void RegistrarCalor(Vector2 centro, float duracion = -1f)
     {
         if (duracion < 0f) duracion = CalorDuracion;
         float expira = Time.time + duracion;
-        int r = controlBomba != null ? controlBomba.explosionRadius : 2;
 
         memoriaCalor[centro] = expira;
-
-        foreach (Vector2 dir in Dirs())
-            for (int i = 1; i <= r; i++)
+        for (int dirIdx = 0; dirIdx < _dirs.Length; dirIdx++)
+        {
+            Vector2 dir = _dirs[dirIdx];
+            for (int i = 1; i <= _radioExplosion; i++)
             {
                 Vector2 c = centro + dir * i;
                 if (EsIndestructible(c)) break;
@@ -1271,6 +1504,7 @@ public class ControlMovimientoLysara : MonoBehaviour
                     memoriaCalor[c] = expira;
                 if (EsDestructible(c)) break;
             }
+        }
     }
 
     private bool CeldaEnCalor(Vector2 c) =>
@@ -1279,20 +1513,24 @@ public class ControlMovimientoLysara : MonoBehaviour
     private void LimpiarCalor()
     {
         if (memoriaCalor.Count == 0) return;
-        var exp = new List<Vector2>();
-        foreach (var kv in memoriaCalor) if (Time.time >= kv.Value) exp.Add(kv.Key);
-        foreach (var k in exp) memoriaCalor.Remove(k);
+        _bufferLimpiezaCalor.Clear();
+        float tNow = Time.time;
+        foreach (var kv in memoriaCalor)
+            if (tNow >= kv.Value) _bufferLimpiezaCalor.Add(kv.Key);
+        for (int i = 0; i < _bufferLimpiezaCalor.Count; i++)
+            memoriaCalor.Remove(_bufferLimpiezaCalor[i]);
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // VARIABILIDAD
+    // [ VARIABILIDAD / DESATASCAR ]
     // ═════════════════════════════════════════════════════════════════════════
 
     private Vector2 CeldaAlternativa(Vector2 desde, Vector2 excluir)
     {
-        foreach (Vector2 d in DirsAleatorio())
+        Vector2[] dirsRand = DirsAleatorio();
+        for (int i = 0; i < dirsRand.Length; i++)
         {
-            Vector2 c = desde + d;
+            Vector2 c = desde + dirsRand[i];
             if (c == excluir) continue;
             if (CeldaSegura(c) && EsCaminable(c)) return c;
         }
@@ -1303,10 +1541,11 @@ public class ControlMovimientoLysara : MonoBehaviour
     {
         Vector2 mejorCelda = Vector2.zero;
         float mejorScore = float.MinValue;
+        Vector2[] dirsRand = DirsAleatorio();
 
-        foreach (Vector2 d in DirsAleatorio())
+        for (int i = 0; i < dirsRand.Length; i++)
         {
-            Vector2 c = desde + d;
+            Vector2 c = desde + dirsRand[i];
             if (!EsCaminable(c) || !CeldaSegura(c)) continue;
 
             float score = 0f;
@@ -1320,21 +1559,18 @@ public class ControlMovimientoLysara : MonoBehaviour
         return mejorCelda;
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // DESATASCAR
-    // ═════════════════════════════════════════════════════════════════════════
-
     private IEnumerator Desatascar(Vector2 desde)
     {
-        foreach (Vector2 d in DirsAleatorio())
+        Vector2[] dirsRand = DirsAleatorio();
+        for (int i = 0; i < dirsRand.Length; i++)
         {
-            Vector2 c = desde + d;
+            Vector2 c = desde + dirsRand[i];
             if (EsCaminable(c) && CeldaSegura(c))
             { yield return StartCoroutine(MoverATile(c)); yield break; }
         }
-        foreach (Vector2 d in DirsAleatorio())
+        for (int i = 0; i < dirsRand.Length; i++)
         {
-            Vector2 c = desde + d;
+            Vector2 c = desde + dirsRand[i];
             if (EsCaminable(c))
             { yield return StartCoroutine(MoverATile(c)); yield break; }
         }
@@ -1342,7 +1578,7 @@ public class ControlMovimientoLysara : MonoBehaviour
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // MOVIMIENTO con vigilancia continua
+    // [ MOVIMIENTO ]
     // ═════════════════════════════════════════════════════════════════════════
 
     private IEnumerator MoverATile(Vector2 dest)
@@ -1364,9 +1600,6 @@ public class ControlMovimientoLysara : MonoBehaviour
                 ActualizarRastreoBombas();
                 Vector2 yoAhora = Snap(rigidbody.position);
 
-                // SOLO abortamos si hay FUEGO ACTIVO en el destino (muerte segura).
-                // "Estar en radio de bomba" NO debe abortar — es normal al huir
-                // de una bomba propia: toda la ruta empieza dentro del radio.
                 if (ExplosionActivaEn(dest))
                 {
                     abortarMovimiento = true;
@@ -1374,8 +1607,6 @@ public class ControlMovimientoLysara : MonoBehaviour
                     SetSprite(Vector2.zero);
                     yield break;
                 }
-                // Si estoy en fuego activo Y el destino también: estoy atrapada,
-                // abortar para que el BuclePrincipal busque ruta alternativa
                 if (ExplosionActivaEn(yoAhora) && ExplosionActivaEn(dest))
                 {
                     abortarMovimiento = true;
@@ -1410,7 +1641,7 @@ public class ControlMovimientoLysara : MonoBehaviour
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // SPRITES
+    // [ SPRITES ]
     // ═════════════════════════════════════════════════════════════════════════
 
     private void SetSprite(Vector2 dir)
@@ -1438,8 +1669,6 @@ public class ControlMovimientoLysara : MonoBehaviour
         spriteRendererRight.enabled = false;
     }
 
-    // Apaga absolutamente TODOS los sprites para evitar que se superpongan.
-    // Crítico antes de activar damage o death para no ver dos animaciones a la vez.
     private void OcultarTodosLosSprites()
     {
         if (spriteRendererUp != null) spriteRendererUp.enabled = false;
@@ -1451,11 +1680,7 @@ public class ControlMovimientoLysara : MonoBehaviour
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // DAÑO Y MUERTE
-    // ═════════════════════════════════════════════════════════════════════════
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // DAÑO Y MUERTE
+    // [ DAÑO Y MUERTE ]
     // ═════════════════════════════════════════════════════════════════════════
 
     private void OnTriggerEnter2D(Collider2D other) => ProcesarExplosion(other);
@@ -1483,7 +1708,7 @@ public class ControlMovimientoLysara : MonoBehaviour
         speed = 5f;
         if (controlBomba != null) controlBomba.enabled = false;
 
-        OcultarMovimiento();
+        OcultarTodosLosSprites();
         spriteRenderDamage.ResetAnimation();
         spriteRenderDamage.enabled = true;
 
@@ -1492,8 +1717,9 @@ public class ControlMovimientoLysara : MonoBehaviour
 
     private void TerminarDano()
     {
+        OcultarTodosLosSprites();
         spriteRenderDamage.ResetAnimation();
-        spriteRenderDamage.enabled = false;
+
         spriteRendererDown.enabled = true;
         activeSpriteRenderer = spriteRendererDown;
         activeSpriteRenderer.idle = true;
@@ -1501,13 +1727,14 @@ public class ControlMovimientoLysara : MonoBehaviour
         if (controlBomba != null)
         {
             controlBomba.enabled = true;
-            controlBomba.ResetPowerUps(); // Después de OnEnable(), forzamos los valores correctos
+            controlBomba.ResetPowerUps();
         }
         isInvincible = false;
         enRecuperacion = false;
-
-        iaActiva = true;
         bombaPuesta = false;
+        iaActiva = true;
+
+        tiempoFinModoDefensivo = Time.time + modoDefensivoTrasDano;
         _corBuclePrincipal = StartCoroutine(BuclePrincipal());
     }
 
@@ -1520,8 +1747,8 @@ public class ControlMovimientoLysara : MonoBehaviour
         CancelInvoke();
         if (controlBomba != null) controlBomba.enabled = false;
 
-        OcultarMovimiento();
-        spriteRenderDamage.enabled = false;
+        OcultarTodosLosSprites();
+        spriteRenderDeath.ResetAnimation();
         spriteRenderDeath.enabled = true;
 
         Invoke(nameof(FinMuerte), 3.25f);
@@ -1529,15 +1756,16 @@ public class ControlMovimientoLysara : MonoBehaviour
 
     private void FinMuerte() => gameObject.SetActive(false);
 
-
     // ═════════════════════════════════════════════════════════════════════════
-    // UTILIDADES
+    // [ UTILIDADES ]
     // ═════════════════════════════════════════════════════════════════════════
 
     private static readonly Vector2[] _dirs =
         { Vector2.up, Vector2.down, Vector2.left, Vector2.right };
 
-    private Vector2[] Dirs() => _dirs;
+    private static readonly Vector2Int[] _dirsInt =
+        { new Vector2Int(0,1), new Vector2Int(0,-1),
+          new Vector2Int(-1,0), new Vector2Int(1,0) };
 
     private Vector2[] DirsAleatorio()
     {
