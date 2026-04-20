@@ -398,36 +398,36 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ControlMovimientoLysara
   Aurora: {fileID: 986045315}
-  nivelInteligencia: 2
+  nivelInteligencia: 1
   aplicarPresetAutomatico: 1
-  intensidadEscape: 0.35
-  nivelAgresividad: 0.85
+  intensidadEscape: 0.25
+  nivelAgresividad: 0.55
   puedeColocarBombas: 1
   usarPrediccionAurora: 1
   puedeAcorralar: 1
   puedeRomperBloques: 1
   recogePowerups: 1
   huirPreventivamente: 1
-  probabilidadError: 0.04
+  probabilidadError: 0.15
   speed: 5
-  timeBetweenMoves: 0.13
+  timeBetweenMoves: 0.2
   timingJitter: 0.08
   delayInicio: 0.5
   Vidas: 3
-  bombChance: 0.95
-  wanderChance: 0.04
-  distanciaEscapeMinima: 1.8
-  margenSeguridadEscape: 0.4
-  umbralAbortoBomba: 0.45
-  umbralBombaInminente: 1.6
-  modoDefensivoTrasDano: 1.8
-  tiempoPrediccionAurora: 0.35
-  distanciaDefensiva: 1.5
+  bombChance: 0.8
+  wanderChance: 0.1
+  distanciaEscapeMinima: 1.5
+  margenSeguridadEscape: 0.35
+  umbralAbortoBomba: 0.4
+  umbralBombaInminente: 1.3
+  modoDefensivoTrasDano: 2.5
+  tiempoPrediccionAurora: 0.2
+  distanciaDefensiva: 2
   minimoSalidasObjetivo: 1
-  distanciaPersecucionIdeal: 1
+  distanciaPersecucionIdeal: 1.2
   perseguirSiempre: 1
-  maxSalidasAuroraParaAcorralar: 3
-  distanciaMaxAcorralar: 15
+  maxSalidasAuroraParaAcorralar: 2
+  distanciaMaxAcorralar: 8
   limiteBFS: 400
   intervaloRefrescoCache: 0.08
   spriteRendererUp: {fileID: 1778016954}
